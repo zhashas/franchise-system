@@ -6,7 +6,6 @@ import AdminLayout from "../../components/AdminLayout"
 export default function AdminDashboard() {
   const [profile, setProfile] = useState(null)
   const [applications, setApplications] = useState([])
-  const [notifications, setNotifications] = useState([])
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -23,12 +22,6 @@ export default function AdminDashboard() {
         .select("*, profiles(full_name)")
         .order("submitted_at", { ascending: false })
       setApplications(apps || [])
-
-      const { data: notifs } = await supabase
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-      setNotifications(notifs || [])
     }
     fetchData()
   }, [])
@@ -47,7 +40,9 @@ export default function AdminDashboard() {
         {/* Welcome */}
         <div className="bg-blue-900 text-white rounded-xl p-6 mb-6 border-l-4 border-orange-500">
           <h1 className="text-2xl font-bold">Admin Dashboard 🛡️</h1>
-          <p className="text-blue-200 text-sm mt-1">Welcome back, {profile?.full_name}! Manage all franchise applications, appointments, and records.</p>
+          <p className="text-blue-200 text-sm mt-1">
+            Welcome back, {profile?.full_name}! Manage all franchise applications, appointments, and records.
+          </p>
         </div>
 
         {/* Stats */}
@@ -64,22 +59,6 @@ export default function AdminDashboard() {
             </div>
           ))}
         </div>
-
-        {/* Notifications */}
-        {notifications.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-            <h2 className="text-lg font-bold text-blue-900 mb-4">🔔 Notifications</h2>
-            <div className="space-y-3">
-              {notifications.map((notif) => (
-                <div key={notif.id} className="p-4 rounded-lg bg-orange-50 border border-orange-200">
-                  <p className="font-semibold text-blue-900 text-sm">{notif.title}</p>
-                  <p className="text-gray-600 text-xs mt-1">{notif.message}</p>
-                  <p className="text-gray-400 text-xs mt-2">{new Date(notif.created_at).toLocaleDateString()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-4 mb-6">
