@@ -5,7 +5,7 @@ import AdminNotifications from "../pages/admin/Notifications";
 import AdminViewApplication from "../pages/admin/ViewApplication";
 import ApplicantAppointments from "../pages/applicant/Appointments";
 import StaffDashboard from "../pages/staff/Dashboard";
-import AdminReports from "../pages/admin/Reports";
+import AdminReports from "../pages/admin/AdminReports";
 import AdminAppointments from "../pages/admin/Appointments";
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
