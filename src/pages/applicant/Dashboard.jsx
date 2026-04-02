@@ -35,7 +35,7 @@ export default function ApplicantDashboard() {
 
   return (
     <ApplicantLayout>
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
 
         {/* Welcome Banner */}
         <div className="bg-blue-900 text-white rounded-xl p-6 mb-6 border-l-4 border-orange-500">

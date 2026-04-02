@@ -138,12 +138,36 @@ export default function AdminAppointments() {
     transition: "border-color 0.2s",
   }
 
-  const filterStats = [
-    { key: "all", label: "All", value: appointments.length, accent: "#111827" },
-    { key: "confirmed", label: "Confirmed", value: appointments.filter(a => a.status === "confirmed").length, accent: "#1D4ED8" },
-    { key: "completed", label: "Completed", value: appointments.filter(a => a.status === "completed").length, accent: "#16A34A" },
-    { key: "cancelled", label: "Cancelled", value: appointments.filter(a => a.status === "cancelled").length, accent: "#DC2626" },
-  ]
+const filterStats = [
+  {
+    key: "all",
+    label: "All",
+    value: appointments.length,
+    accent: "#6B7280", // soft gray
+    bg: "#F3F4F6"
+  },
+  {
+    key: "confirmed",
+    label: "Confirmed",
+    value: appointments.filter(a => a.status === "confirmed").length,
+    accent: "#60A5FA", // soft blue
+    bg: "#EFF6FF"
+  },
+  {
+    key: "completed",
+    label: "Completed",
+    value: appointments.filter(a => a.status === "completed").length,
+    accent: "#34D399", // soft green
+    bg: "#ECFDF5"
+  },
+  {
+    key: "cancelled",
+    label: "Cancelled",
+    value: appointments.filter(a => a.status === "cancelled").length,
+    accent: "#F87171", // soft red
+    bg: "#FEF2F2"
+  },
+]
 
   return (
     <AdminLayout>
@@ -192,49 +216,40 @@ export default function AdminAppointments() {
           </button>
         </div>
 
-        {/* STAT CARDS */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
-          {filterStats.map((stat) => {
-            const isActive = statusFilter === stat.key
-            return (
-              <button
-                key={stat.key}
-                onClick={() => setStatusFilter(stat.key)}
-                style={{
-                  background: isActive ? stat.accent : pro.surface,
-                  border: `2px solid ${isActive ? stat.accent : pro.border}`,
-                  borderRadius: "12px",
-                  padding: "16px 20px",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  transition: "all 0.2s",
-                  fontFamily: pro.font,
-                  boxShadow: isActive ? `0 4px 14px ${stat.accent}33` : "0 1px 4px rgba(0,0,0,0.06)",
-                }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = stat.accent }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = pro.border }}
-              >
-                <p style={{
-                  fontSize: "28px",
-                  fontWeight: 700,
-                  margin: 0,
-                  color: isActive ? "#fff" : stat.accent,
-                  lineHeight: 1,
-                }}>
-                  {stat.value}
-                </p>
-                <p style={{
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  margin: "6px 0 0",
-                  color: isActive ? "rgba(255,255,255,0.85)" : pro.muted,
-                }}>
-                  {stat.label}
-                </p>
-              </button>
-            )
-          })}
-        </div>
+{/* STAT CARDS (APPLICATION STYLE) */}
+<div className="grid grid-cols-4 gap-4">
+  {filterStats.map((stat) => {
+    const isActive = statusFilter === stat.key
+
+    return (
+      <div
+        key={stat.key}
+        onClick={() => setStatusFilter(stat.key)}
+        className={`p-4 rounded-lg border cursor-pointer transition ${
+          isActive ? "ring-2 ring-black scale-[1.02]" : "hover:scale-[1.01]"
+        }`}
+        style={{
+          background: stat.bg,
+          borderColor: stat.accent,
+        }}
+      >
+        <p
+          className="text-2xl font-semibold"
+          style={{ color: stat.accent }}
+        >
+          {stat.value}
+        </p>
+
+        <p
+          className="text-xs mt-1 font-medium"
+          style={{ color: stat.accent }}
+        >
+          {stat.label}
+        </p>
+      </div>
+    )
+  })}
+</div>
 
         {/* SEARCH BAR */}
         <div style={{
@@ -247,7 +262,7 @@ export default function AdminAppointments() {
           gap: "12px",
           boxShadow: "0 1px 4px rgba(0,0,0,0.05)"
         }}>
-          <span style={{ fontSize: "16px" }}>🔍</span>
+          <span style={{ fontSize: "20px" }}>⌕</span>
           <input
             type="text"
             placeholder="Search by name, email, date, or notes..."

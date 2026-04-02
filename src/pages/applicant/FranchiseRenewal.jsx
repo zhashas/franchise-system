@@ -104,7 +104,7 @@ export default function FranchiseRenewal() {
 
   return (
     <ApplicantLayout>
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
 
         {/* Header */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border-t-4 border-orange-500">

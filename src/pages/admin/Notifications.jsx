@@ -3,6 +3,12 @@ import { supabase } from "../../lib/supabaseClient"
 import { useNavigate } from "react-router-dom"
 import AdminLayout from "../../components/AdminLayout"
 
+// Helper to broadcast unread count to AdminLayout (and anywhere else listening)
+const broadcastUnreadCount = (notifications) => {
+  const count = notifications.filter(n => !n.is_read).length
+  window.dispatchEvent(new CustomEvent("adminUnreadCount", { detail: { count } }))
+}
+
 export default function AdminNotifications() {
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,16 +18,17 @@ export default function AdminNotifications() {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      // Fetch only notifications sent BY applicants TO admins
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
         .eq("recipient_type", "admin")
         .eq("sender_type", "applicant")
         .order("created_at", { ascending: false })
-      
+
       if (error) console.error("Error fetching notifications:", error)
-      setNotifications(data || [])
+      const result = data || []
+      setNotifications(result)
+      broadcastUnreadCount(result) // 🔴 Sync badge on load
       setLoading(false)
     }
     fetchNotifications()
@@ -30,16 +37,16 @@ export default function AdminNotifications() {
   const getCategory = (notif) => {
     const type = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    
-    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted")) 
+
+    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted"))
       return "new_application"
-    if (type === "renewal_request" || title.includes("renewal")) 
+    if (type === "renewal_request" || title.includes("renewal"))
       return "renewal"
-    if (type === "appointment_request" || title.includes("appointment")) 
+    if (type === "appointment_request" || title.includes("appointment"))
       return "appointment"
-    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded")) 
+    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded"))
       return "document"
-    if (type === "inquiry" || title.includes("inquiry") || title.includes("question")) 
+    if (type === "inquiry" || title.includes("inquiry") || title.includes("question"))
       return "inquiry"
     return "other"
   }
@@ -69,11 +76,12 @@ export default function AdminNotifications() {
   const handleNotificationClick = async (notif) => {
     if (!notif.is_read) {
       await supabase.from("notifications").update({ is_read: true }).eq("id", notif.id)
-      setNotifications(notifications.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
+      const updated = notifications.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
+      setNotifications(updated)
+      broadcastUnreadCount(updated) // 🔴 Sync badge on individual read
     }
 
     const category = getCategory(notif)
-    
     if (category === "appointment") {
       navigate("/admin/appointments")
     } else if (notif.application_id) {
@@ -89,7 +97,9 @@ export default function AdminNotifications() {
       .update({ is_read: true })
       .eq("recipient_type", "admin")
       .eq("is_read", false)
-    setNotifications(notifications.map(n => ({ ...n, is_read: true })))
+    const updated = notifications.map(n => ({ ...n, is_read: true }))
+    setNotifications(updated)
+    broadcastUnreadCount(updated) // 🔴 Sync badge after mark all read
   }
 
   const getRedirectLabel = (notif) => {
@@ -125,7 +135,7 @@ export default function AdminNotifications() {
 
   return (
     <AdminLayout>
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
 
           {/* Header */}
@@ -133,14 +143,17 @@ export default function AdminNotifications() {
             <h1 className="text-lg font-bold text-gray-800 uppercase tracking-wide">
               🔔 Admin Notifications
             </h1>
-            {notifications.some(n => !n.is_read) && (
-              <button
-                onClick={markAllAsRead}
-                className="text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-medium transition"
-              >
-                Mark All as Read
-              </button>
-            )}
+            <button
+              onClick={markAllAsRead}
+              disabled={notifications.length === 0 || notifications.every(n => n.is_read)}
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition
+                ${notifications.length === 0 || notifications.every(n => n.is_read)
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-orange-500 hover:bg-orange-600 text-white"
+                }`}
+            >
+              Mark All as Read
+            </button>
           </div>
 
           {/* Legend Filter */}

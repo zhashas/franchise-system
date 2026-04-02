@@ -216,7 +216,7 @@ export default function Apply() {
 
   return (
     <ApplicantLayout backLabel="Back to Dashboard" backPath="/applicant/dashboard">
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="bg-white rounded-xl shadow-sm p-8 border-t-4 border-orange-500">
 
           <h1 className="text-xl font-bold text-center text-blue-900 uppercase mb-1">

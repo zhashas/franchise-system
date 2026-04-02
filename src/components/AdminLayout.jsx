@@ -23,32 +23,47 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     localStorage.setItem("admin_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
-  const fetchNotifications = async () => {
+
+
+useEffect(() => {
+  const loadNotifications = async () => {
     const { data } = await supabase
       .from("notifications")
-      .select("*, profiles(full_name)")
+      .select("*, profiles!notifications_sender_id_fkey(full_name)")
+      .eq("recipient_type", "admin")
+      .eq("sender_type", "applicant")
       .order("created_at", { ascending: false })
       .limit(50)
 
     const all = data || []
     const unread = all.filter(n => !n.is_read)
-    setNotifications(unread.slice(0, 10)) // ✅ max 10 in bell
+
+    setNotifications(unread.slice(0, 10))
     setUnreadCount(unread.length)
   }
 
-  useEffect(() => {
-    // ✅ Real-time subscription
-    const channel = supabase
-      .channel("admin-notifications-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "notifications" },
-        () => fetchNotifications()
-      )
-      .subscribe(() => fetchNotifications())
+  // ✅ initial load
+  loadNotifications()
 
-    return () => supabase.removeChannel(channel)
-  }, [])
+  // ✅ realtime subscription
+  const channel = supabase
+    .channel("admin-notifications-realtime")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "notifications" },
+      () => loadNotifications()
+    )
+    .subscribe()
+
+  // ✅ custom event listener
+  const handler = (e) => setUnreadCount(e.detail.count)
+  window.addEventListener("adminUnreadCount", handler)
+
+  return () => {
+    supabase.removeChannel(channel)
+    window.removeEventListener("adminUnreadCount", handler)
+  }
+}, [])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -66,7 +81,11 @@ export default function AdminLayout({ children, backPath, backLabel }) {
   }
 
   const markAllAsRead = async () => {
-    await supabase.from("notifications").update({ is_read: true }).eq("is_read", false)
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("recipient_type", "admin")
+      .eq("is_read", false)
     setNotifications([])
     setUnreadCount(0)
   }
@@ -80,17 +99,19 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     const title = notif.title?.toLowerCase() || ""
     const message = notif.message?.toLowerCase() || ""
     if (title.includes("appointment") || message.includes("appointment")) navigate("/admin/appointments")
-    else if (title.includes("application") || message.includes("application") || title.includes("approved") || title.includes("declined")) navigate("/admin/applications")
+    else if (notif.application_id) navigate(`/admin/applications/${notif.application_id}`)
     else navigate("/admin/notifications")
   }
 
   const getNotifDot = (notif) => {
+    const type = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    if (title.includes("approved")) return "bg-green-500"
-    if (title.includes("declined") || title.includes("rejected")) return "bg-red-500"
-    if (title.includes("appointment")) return "bg-blue-500"
-    if (title.includes("renewal")) return "bg-orange-500"
-    return "bg-yellow-400"
+    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted")) return "bg-green-500"
+    if (type === "renewal_request" || title.includes("renewal")) return "bg-orange-500"
+    if (type === "appointment_request" || title.includes("appointment")) return "bg-blue-500"
+    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded")) return "bg-purple-500"
+    if (type === "inquiry" || title.includes("inquiry") || title.includes("question")) return "bg-yellow-400"
+    return "bg-gray-400"
   }
 
   const formatTime = (date) => {
@@ -134,7 +155,10 @@ export default function AdminLayout({ children, backPath, backLabel }) {
         </div>
 
         {/* Toggle */}
-        <button onClick={() => setCollapsed(prev => !prev)} className="mx-auto mt-2 text-orange-200 hover:text-white transition">
+        <button
+          onClick={() => setCollapsed(prev => !prev)}
+          className="mx-auto mt-2 text-orange-200 hover:text-white transition"
+        >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
 
@@ -154,10 +178,10 @@ export default function AdminLayout({ children, backPath, backLabel }) {
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 {!collapsed && <span>{item.label}</span>}
-                {/* ✅ Badge on sidebar bell */}
+                {/* ✅ Red badge on sidebar bell */}
                 {isBell && unreadCount > 0 && (
-                  <span className={`absolute ${collapsed ? "top-0.5 right-0.5" : "right-3"} bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold`}>
-                    {unreadCount > 10 ? "10+" : unreadCount}
+                  <span className={`absolute ${collapsed ? "top-0.5 right-0.5" : "right-3"} bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none`}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
               </button>
@@ -193,8 +217,8 @@ export default function AdminLayout({ children, backPath, backLabel }) {
             >
               <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none">
-                  {unreadCount > 10 ? "10+" : unreadCount}
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none">
+                  {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
             </button>
@@ -210,13 +234,16 @@ export default function AdminLayout({ children, backPath, backLabel }) {
                     <p className="text-xs text-gray-400">{unreadCount} unread</p>
                   </div>
                   {unreadCount > 0 && (
-                    <button onClick={markAllAsRead} className="text-xs text-orange-500 hover:underline font-medium">
+                    <button
+                      onClick={markAllAsRead}
+                      className="text-xs text-orange-500 hover:underline font-medium"
+                    >
                       Mark all read
                     </button>
                   )}
                 </div>
 
-                {/* Dropdown List — max 10 */}
+                {/* Dropdown List */}
                 {notifications.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 text-sm">
                     <p className="text-2xl mb-2">🔔</p>
@@ -234,7 +261,12 @@ export default function AdminLayout({ children, backPath, backLabel }) {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-gray-800 truncate">{notif.title}</p>
                           <p className="text-xs text-gray-500 truncate mt-0.5">{notif.message}</p>
-                          <p className="text-xs text-orange-400 mt-1">{formatTime(notif.created_at)}</p>
+                          {notif.profiles?.full_name && (
+                            <p className="text-xs text-orange-400 mt-0.5 truncate">
+                              👤 {notif.profiles.full_name}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-1">{formatTime(notif.created_at)}</p>
                         </div>
                       </div>
                     ))}
@@ -285,10 +317,16 @@ export default function AdminLayout({ children, backPath, backLabel }) {
               <p className="text-sm text-gray-500 mt-1">Are you sure you want to logout?</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={handleLogout} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition">
+              <button
+                onClick={handleLogout}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition"
+              >
                 Yes, Logout
               </button>
-              <button onClick={() => setShowLogoutModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition"
+              >
                 Cancel
               </button>
             </div>
