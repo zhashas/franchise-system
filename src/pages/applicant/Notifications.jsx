@@ -1,20 +1,28 @@
 import { useEffect, useState } from "react"
 import { supabase } from "../../lib/supabaseClient"
+import { useNavigate } from "react-router-dom"
 import ApplicantLayout from "../../components/ApplicantLayout"
 
 export default function ApplicantNotifications() {
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState("all")
+  const navigate = useNavigate()
 
   useEffect(() => {
     const fetchNotifications = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase
+      
+      // Fetch only notifications sent BY admin TO this specific applicant
+      const { data, error } = await supabase
         .from("notifications")
         .select("*")
         .eq("user_id", user.id)
+        .eq("recipient_type", "applicant")
+        .eq("sender_type", "admin")
         .order("created_at", { ascending: false })
+      
+      if (error) console.error("Error fetching notifications:", error)
       setNotifications(data || [])
       setLoading(false)
     }
@@ -28,23 +36,62 @@ export default function ApplicantNotifications() {
 
   const markAllAsRead = async () => {
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false)
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", user.id)
+      .eq("recipient_type", "applicant")
+      .eq("is_read", false)
     setNotifications(notifications.map(n => ({ ...n, is_read: true })))
+  }
+
+  const handleNotificationClick = async (notif) => {
+    if (!notif.is_read) {
+      await markAsRead(notif.id)
+    }
+
+    const type = notif.notification_type || ""
+    const title = notif.title?.toLowerCase() || ""
+
+    if (type === "appointment_scheduled" || title.includes("appointment")) {
+      navigate("/applicant/appointments")
+    } else if (type === "status_update" || title.includes("approved") || title.includes("declined")) {
+      navigate("/applicant/status")
+    } else {
+      navigate("/applicant/dashboard")
+    }
   }
 
   const filtered = filter === "all" ? notifications
     : filter === "unread" ? notifications.filter(n => !n.is_read)
     : notifications.filter(n => n.is_read)
 
-  const statusDot = (title) => {
-    if (title?.includes("Approved") || title?.includes("approved")) return "bg-green-500"
-    if (title?.includes("Declined") || title?.includes("rejected")) return "bg-red-500"
-    return "bg-yellow-400"
+  const statusDot = (notif) => {
+    const type = notif.notification_type || ""
+    const title = notif.title?.toLowerCase() || ""
+    
+    if (title.includes("approved") || type === "application_approved") return "bg-green-500"
+    if (title.includes("declined") || title.includes("rejected") || type === "application_declined") return "bg-red-500"
+    if (title.includes("appointment") || type === "appointment_scheduled") return "bg-blue-500"
+    if (title.includes("review") || type === "under_review") return "bg-yellow-400"
+    return "bg-gray-400"
+  }
+
+  const getRedirectLabel = (notif) => {
+    const type = notif.notification_type || ""
+    const title = notif.title?.toLowerCase() || ""
+
+    if (type === "appointment_scheduled" || title.includes("appointment")) return "→ View Appointments"
+    if (title.includes("approved") || title.includes("declined") || type.includes("application")) return "→ View Status"
+    return "→ Go to Dashboard"
   }
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString("en-PH", { month: "numeric", day: "numeric", year: "numeric" })
-      + " – " + new Date(date).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true })
+    return new Date(date).toLocaleDateString("en-PH", { 
+      month: "numeric", day: "numeric", year: "numeric" 
+    }) + " – " + new Date(date).toLocaleTimeString("en-PH", { 
+      hour: "numeric", minute: "2-digit", hour12: true 
+    })
   }
 
   return (
@@ -52,9 +99,14 @@ export default function ApplicantNotifications() {
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="bg-gray-100 px-6 py-4 border-b flex justify-between items-center">
-            <h1 className="text-lg font-bold text-gray-800 uppercase tracking-wide">🔔 Notification Panel</h1>
+            <h1 className="text-lg font-bold text-gray-800 uppercase tracking-wide">
+              🔔 My Notifications
+            </h1>
             {notifications.some(n => !n.is_read) && (
-              <button onClick={markAllAsRead} className="text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-medium transition">
+              <button 
+                onClick={markAllAsRead} 
+                className="text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-medium transition"
+              >
                 Mark All as Read
               </button>
             )}
@@ -64,13 +116,22 @@ export default function ApplicantNotifications() {
             <span className="text-xs text-gray-500 font-medium">Filter by:</span>
             <div className="flex gap-2">
               {["all", "unread", "read"].map((f) => (
-                <button key={f} onClick={() => setFilter(f)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold uppercase transition ${filter === f ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-500 hover:bg-orange-50"}`}>
+                <button 
+                  key={f} 
+                  onClick={() => setFilter(f)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold uppercase transition ${
+                    filter === f 
+                      ? "bg-orange-500 text-white" 
+                      : "bg-gray-100 text-gray-500 hover:bg-orange-50"
+                  }`}
+                >
                   {f}
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-xs text-gray-400">{notifications.filter(n => !n.is_read).length} unread</span>
+            <span className="ml-auto text-xs text-gray-400">
+              {notifications.filter(n => !n.is_read).length} unread
+            </span>
           </div>
 
           {loading ? (
@@ -83,17 +144,42 @@ export default function ApplicantNotifications() {
           ) : (
             <div className="divide-y divide-gray-100">
               {filtered.map((notif) => (
-                <div key={notif.id} onClick={() => !notif.is_read && markAsRead(notif.id)}
-                  className={`flex items-start gap-4 px-6 py-4 cursor-pointer transition ${notif.is_read ? "bg-white hover:bg-gray-50" : "bg-orange-50 hover:bg-orange-100"}`}>
+                <div 
+                  key={notif.id} 
+                  onClick={() => handleNotificationClick(notif)}
+                  className={`flex items-start gap-4 px-6 py-4 cursor-pointer transition ${
+                    notif.is_read 
+                      ? "bg-white hover:bg-gray-50" 
+                      : "bg-orange-50 hover:bg-orange-100"
+                  }`}
+                >
                   <div className="flex-shrink-0 mt-1">
-                    <div className={`w-3 h-3 rounded-full ${statusDot(notif.title)}`} />
+                    <div className={`w-3 h-3 rounded-full ${statusDot(notif)}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm ${notif.is_read ? "text-gray-600" : "text-gray-800 font-semibold"}`}>{notif.message}</p>
+                    <p className={`text-sm font-semibold ${notif.is_read ? "text-gray-500" : "text-gray-800"}`}>
+                      {notif.title}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${notif.is_read ? "text-gray-400" : "text-gray-600"}`}>
+                      {notif.message}
+                    </p>
+                    <p className="text-xs text-blue-400 mt-1 font-medium">
+                      {getRedirectLabel(notif)}
+                    </p>
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <p className="text-xs text-gray-400 whitespace-nowrap">{formatDate(notif.created_at)}</p>
-                    {!notif.is_read && <span className="inline-block mt-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">New</span>}
+                    <p className="text-xs text-gray-400 whitespace-nowrap">
+                      {formatDate(notif.created_at)}
+                    </p>
+                    {!notif.is_read ? (
+                      <span className="inline-block mt-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">
+                        New
+                      </span>
+                    ) : (
+                      <span className="inline-block mt-1 text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">
+                        Read
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

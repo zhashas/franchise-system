@@ -12,10 +12,15 @@ export default function AdminNotifications() {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      const { data } = await supabase
+      // Fetch only notifications sent BY applicants TO admins
+      const { data, error } = await supabase
         .from("notifications")
-        .select("*, profiles(full_name)")
+        .select("*, profiles!notifications_sender_id_fkey(full_name)")
+        .eq("recipient_type", "admin")
+        .eq("sender_type", "applicant")
         .order("created_at", { ascending: false })
+      
+      if (error) console.error("Error fetching notifications:", error)
       setNotifications(data || [])
       setLoading(false)
     }
@@ -23,33 +28,42 @@ export default function AdminNotifications() {
   }, [])
 
   const getCategory = (notif) => {
+    const type = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    const message = notif.message?.toLowerCase() || ""
-    if (title.includes("approved")) return "approved"
-    if (title.includes("declined") || title.includes("rejected")) return "declined"
-    if (title.includes("appointment") || message.includes("appointment")) return "appointment"
-    if (title.includes("renewal") || message.includes("renewal")) return "renewal"
-    if (title.includes("application") || message.includes("application")) return "new_application"
+    
+    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted")) 
+      return "new_application"
+    if (type === "renewal_request" || title.includes("renewal")) 
+      return "renewal"
+    if (type === "appointment_request" || title.includes("appointment")) 
+      return "appointment"
+    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded")) 
+      return "document"
+    if (type === "inquiry" || title.includes("inquiry") || title.includes("question")) 
+      return "inquiry"
     return "other"
   }
 
   const statusDot = (notif) => {
     const cat = getCategory(notif)
-    if (cat === "approved") return "bg-green-500"
-    if (cat === "declined") return "bg-red-500"
-    if (cat === "appointment") return "bg-blue-500"
-    if (cat === "renewal") return "bg-orange-500"
-    if (cat === "new_application") return "bg-yellow-400"
-    return "bg-gray-400"
+    const colors = {
+      new_application: "bg-green-500",
+      renewal: "bg-orange-500",
+      appointment: "bg-blue-500",
+      document: "bg-purple-500",
+      inquiry: "bg-yellow-400",
+      other: "bg-gray-400"
+    }
+    return colors[cat] || "bg-gray-400"
   }
 
   const legends = [
     { key: "all", label: "All", dot: "bg-gray-400" },
-    { key: "approved", label: "Approved", dot: "bg-green-500" },
-    { key: "declined", label: "Declined", dot: "bg-red-500" },
+    { key: "new_application", label: "New Application", dot: "bg-green-500" },
+    { key: "renewal", label: "Renewal Request", dot: "bg-orange-500" },
     { key: "appointment", label: "Appointment", dot: "bg-blue-500" },
-    { key: "renewal", label: "Renewal", dot: "bg-orange-500" },
-    { key: "new_application", label: "New Application", dot: "bg-yellow-400" },
+    { key: "document", label: "Document Upload", dot: "bg-purple-500" },
+    { key: "inquiry", label: "Inquiry", dot: "bg-yellow-400" },
   ]
 
   const handleNotificationClick = async (notif) => {
@@ -58,32 +72,36 @@ export default function AdminNotifications() {
       setNotifications(notifications.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
     }
 
-    const title = notif.title?.toLowerCase() || ""
-    const message = notif.message?.toLowerCase() || ""
-
-    if (title.includes("appointment") || message.includes("appointment")) {
+    const category = getCategory(notif)
+    
+    if (category === "appointment") {
       navigate("/admin/appointments")
     } else if (notif.application_id) {
       navigate(`/admin/applications/${notif.application_id}`)
-    } else if (title.includes("application") || message.includes("application") || title.includes("approved") || title.includes("declined") || title.includes("renewal")) {
-      navigate("/admin/applications")
     } else {
-      navigate("/admin/dashboard")
+      navigate("/admin/applications")
     }
   }
 
   const markAllAsRead = async () => {
-    await supabase.from("notifications").update({ is_read: true }).eq("is_read", false)
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("recipient_type", "admin")
+      .eq("is_read", false)
     setNotifications(notifications.map(n => ({ ...n, is_read: true })))
   }
 
   const getRedirectLabel = (notif) => {
-    const title = notif.title?.toLowerCase() || ""
-    const message = notif.message?.toLowerCase() || ""
-    if (title.includes("appointment") || message.includes("appointment")) return "→ View Appointments"
-    if (title.includes("approved") || title.includes("declined") || title.includes("renewal")) return "→ View Applications"
-    if (title.includes("application") || message.includes("application")) return "→ View Applications"
-    return "→ Go to Dashboard"
+    const category = getCategory(notif)
+    const labels = {
+      appointment: "→ View Appointments",
+      new_application: "→ View Application",
+      renewal: "→ View Applications",
+      document: "→ View Application",
+      inquiry: "→ View Details"
+    }
+    return labels[category] || "→ View Applications"
   }
 
   const formatDate = (date) => {
@@ -94,7 +112,6 @@ export default function AdminNotifications() {
     })
   }
 
-  // Apply both read/unread filter and legend/category filter
   const filtered = notifications
     .filter(n => {
       if (filter === "unread") return !n.is_read
@@ -114,7 +131,7 @@ export default function AdminNotifications() {
           {/* Header */}
           <div className="bg-gray-100 px-6 py-4 border-b flex justify-between items-center">
             <h1 className="text-lg font-bold text-gray-800 uppercase tracking-wide">
-              🔔 Notification Panel
+              🔔 Admin Notifications
             </h1>
             {notifications.some(n => !n.is_read) && (
               <button
@@ -161,7 +178,7 @@ export default function AdminNotifications() {
 
           {/* Read/Unread Filter */}
           <div className="px-6 py-3 border-b bg-white flex items-center gap-3">
-            <span className="text-xs text-gray-500 font-medium">Filter by:</span>
+            <span className="text-xs text-gray-500 font-medium">Status:</span>
             <div className="flex gap-2">
               {["all", "unread", "read"].map((f) => (
                 <button
@@ -210,12 +227,10 @@ export default function AdminNotifications() {
                       : "bg-orange-50 hover:bg-orange-100"
                   }`}
                 >
-                  {/* Status Dot */}
                   <div className="flex-shrink-0 mt-1.5">
                     <div className={`w-3 h-3 rounded-full ${statusDot(notif)}`} />
                   </div>
 
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-semibold ${notif.is_read ? "text-gray-500" : "text-gray-800"}`}>
                       {notif.title}
@@ -225,7 +240,7 @@ export default function AdminNotifications() {
                     </p>
                     {notif.profiles?.full_name && (
                       <p className="text-xs text-orange-500 mt-1 font-medium">
-                        👤 {notif.profiles.full_name}
+                        👤 From: {notif.profiles.full_name}
                       </p>
                     )}
                     <p className="text-xs text-blue-400 mt-1 font-medium">
@@ -233,7 +248,6 @@ export default function AdminNotifications() {
                     </p>
                   </div>
 
-                  {/* Time & Badge */}
                   <div className="flex-shrink-0 text-right">
                     <p className="text-xs text-gray-400 whitespace-nowrap">
                       {formatDate(notif.created_at)}
@@ -245,7 +259,7 @@ export default function AdminNotifications() {
                     ) : (
                       <span className="inline-block mt-1 text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">
                         Read
-      </span>
+                      </span>
                     )}
                   </div>
                 </div>

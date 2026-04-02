@@ -2,6 +2,7 @@ import { useState, useRef } from "react"
 import { supabase } from "../../lib/supabaseClient"
 import { useNavigate } from "react-router-dom"
 import ApplicantLayout from "../../components/ApplicantLayout"
+import { notifyAdmin } from "../../lib/notifications"
 
 export default function Apply() {
   const navigate = useNavigate()
@@ -145,20 +146,25 @@ export default function Apply() {
   }
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError("")
-    if (!validateForm()) return
-    setLoading(true)
+  e.preventDefault()
+  setError("")
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
+  if (!validateForm()) return
+  setLoading(true)
 
-      const orCrUrl = await uploadFile(files.or_cr, `${user.id}/or_cr_${Date.now()}`)
-      const barangayUrl = await uploadFile(files.barangay_clearance, `${user.id}/barangay_${Date.now()}`)
-      const cedulaUrl = await uploadFile(files.cedula, `${user.id}/cedula_${Date.now()}`)
-      const photoUrl = await uploadFile(files.photo, `${user.id}/photo_${Date.now()}`)
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
 
-      const { error: appError } = await supabase.from("applications").insert({
+    // 1. Upload files first
+    const orCrUrl = await uploadFile(files.or_cr, `${user.id}/or_cr_${Date.now()}`)
+    const barangayUrl = await uploadFile(files.barangay_clearance, `${user.id}/barangay_${Date.now()}`)
+    const cedulaUrl = await uploadFile(files.cedula, `${user.id}/cedula_${Date.now()}`)
+    const photoUrl = await uploadFile(files.photo, `${user.id}/photo_${Date.now()}`)
+
+    // 2. Save application FIRST
+    const { data: newApplication, error } = await supabase
+      .from("applications")
+      .insert({
         applicant_id: user.id,
         type: formData.type,
         status: "pending",
@@ -170,25 +176,36 @@ export default function Apply() {
             cedula: cedulaUrl,
             photo: photoUrl,
           }
-        },
+        }
       })
-      if (appError) throw appError
+      .select()
+      .single()
 
-      await supabase.from("notifications").insert({
-        user_id: user.id,
-        title: formData.type === "registration" ? "New Application Submitted" : "Franchise Renewal Submitted",
-        message: `${formData.franchise_owner} submitted a ${formData.type} application.`,
-        is_read: false,
-        created_at: new Date()
+    // 3. STOP if error
+    if (error) throw error
+
+    // 4. ONLY AFTER SUCCESS → send notification
+    if (newApplication) {
+      await notifyAdmin({
+        senderId: user.id,
+        title:
+          formData.type === "registration"
+            ? "New Application Submitted"
+            : "Franchise Renewal Submitted",
+        message: `${formData.franchise_owner} has submitted a ${formData.type} application.`,
+        applicationId: newApplication.id,
+        notificationType: "application_submitted"
       })
-
-      setSuccess(true)
-      setLoading(false)
-    } catch (err) {
-      setError("❌ " + err.message)
-      setLoading(false)
     }
+
+    setSuccess(true)
+    setLoading(false)
+
+  } catch (err) {
+    setError("❌ " + err.message)
+    setLoading(false)
   }
+}
 
   const inputClass = (hasError) =>
     `w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${
