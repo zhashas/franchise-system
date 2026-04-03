@@ -2,7 +2,6 @@ import FranchiseRenewal from "../pages/applicant/FranchiseRenewal";
 import ApplicantSettings from "../pages/applicant/Settings";
 import ApplicantNotifications from "../pages/applicant/Notifications";
 import AdminNotifications from "../pages/admin/Notifications";
-import AdminViewApplication from "../pages/admin/ViewApplication";
 import ApplicantAppointments from "../pages/applicant/Appointments";
 import StaffDashboard from "../pages/staff/Dashboard";
 import AdminReports from "../pages/admin/AdminReports";
@@ -19,6 +18,7 @@ import AdminDashboard from "../pages/admin/Dashboard";
 import ApplicantDashboard from "../pages/applicant/Dashboard";
 import Apply from "../pages/applicant/Apply";
 import AdminApplications from "../pages/admin/Applications";
+import AdminApplicationDetail from "../pages/admin/AdminApplicationDetail";
 
 // Protected Route
 function ProtectedRoute({ children, allowedRoles }) {
@@ -89,11 +89,12 @@ export default function AppRoutes() {
           }
         />
 
+        {/* Single route for application detail — uses AdminApplicationDetail */}
         <Route
           path="/admin/applications/:id"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
-              <AdminViewApplication />
+              <AdminApplicationDetail />
             </ProtectedRoute>
           }
         />
