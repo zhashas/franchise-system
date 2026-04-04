@@ -3,12 +3,12 @@ import { useNavigate, useLocation } from "react-router-dom"
 import { supabase } from "../lib/supabaseClient"
 import {
   Home, ClipboardList, Calendar, BarChart3, Bell, LogOut,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Settings
 } from "lucide-react"
 
-export default function AdminLayout({ children, backPath, backLabel }) {
+export default function StaffLayout({ children, backPath, backLabel }) {
   const [collapsed, setCollapsed] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("admin_sidebar")) ?? false }
+    try { return JSON.parse(localStorage.getItem("staff_sidebar")) ?? false }
     catch { return false }
   })
   const [showLogoutModal, setShowLogoutModal] = useState(false)
@@ -20,7 +20,7 @@ export default function AdminLayout({ children, backPath, backLabel }) {
   const location = useLocation()
 
   useEffect(() => {
-    localStorage.setItem("admin_sidebar", JSON.stringify(collapsed))
+    localStorage.setItem("staff_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
 
@@ -30,7 +30,7 @@ useEffect(() => {
     const { data } = await supabase
       .from("notifications")
       .select("*, profiles!notifications_sender_id_fkey(full_name)")
-      .eq("recipient_type", "admin")
+      .eq("recipient_type", "staff")
       .eq("sender_type", "applicant")
       .order("created_at", { ascending: false })
       .limit(50)
@@ -47,7 +47,7 @@ useEffect(() => {
 
   // ✅ realtime subscription
   const channel = supabase
-    .channel("admin-notifications-realtime")
+    .channel("staff-notifications-realtime")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "notifications" },
@@ -57,11 +57,11 @@ useEffect(() => {
 
   // ✅ custom event listener
   const handler = (e) => setUnreadCount(e.detail.count)
-  window.addEventListener("adminUnreadCount", handler)
+  window.addEventListener("staffUnreadCount", handler)
 
   return () => {
     supabase.removeChannel(channel)
-    window.removeEventListener("adminUnreadCount", handler)
+    window.removeEventListener("staffUnreadCount", handler)
   }
 }, [])
 
@@ -84,7 +84,7 @@ useEffect(() => {
     await supabase
       .from("notifications")
       .update({ is_read: true })
-      .eq("recipient_type", "admin")
+      .eq("recipient_type", "staff")
       .eq("is_read", false)
     setNotifications([])
     setUnreadCount(0)
@@ -98,9 +98,9 @@ useEffect(() => {
 
     const title = notif.title?.toLowerCase() || ""
     const message = notif.message?.toLowerCase() || ""
-    if (title.includes("appointment") || message.includes("appointment")) navigate("/admin/appointments")
-    else if (notif.application_id) navigate(`/admin/applications/${notif.application_id}`)
-    else navigate("/admin/notifications")
+    if (title.includes("appointment") || message.includes("appointment")) navigate("/staff/appointments")
+    else if (notif.application_id) navigate(`/staff/applications/${notif.application_id}`)
+    else navigate("/staff/notifications")
   }
 
   const getNotifDot = (notif) => {
@@ -128,11 +128,12 @@ useEffect(() => {
   }
 
   const menuItems = [
-    { path: "/admin/dashboard", icon: Home, label: "Home" },
-    { path: "/admin/applications", icon: ClipboardList, label: "Applications" },
-    { path: "/admin/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/admin/reports", icon: BarChart3, label: "Reports" },
-    { path: "/admin/notifications", icon: Bell, label: "Notifications" },
+    { path: "/staff/dashboard", icon: Home, label: "Home" },
+    { path: "/staff/applications", icon: ClipboardList, label: "Applications" },
+    { path: "/staff/appointments", icon: Calendar, label: "Appointments" },
+    { path: "/staff/reports", icon: BarChart3, label: "Reports" },
+    { path: "/staff/notifications", icon: Bell, label: "Notifications" },
+    { path: "/staff/settings",      icon: Settings,     label: "Settings" },
   ]
 
   return (
@@ -167,7 +168,7 @@ useEffect(() => {
           {menuItems.map((item) => {
             const Icon = item.icon
             const isActive = location.pathname === item.path
-            const isBell = item.path === "/admin/notifications"
+            const isBell = item.path === "/staff/notifications"
             return (
               <button
                 key={item.path}
@@ -296,7 +297,7 @@ useEffect(() => {
             )}
 
             <span className="text-xs bg-orange-100 text-orange-600 px-3 py-1 rounded-full font-medium">
-              🛡️ Admin
+              🛡️ Staff
             </span>
           </div>
         </div>
@@ -306,7 +307,7 @@ useEffect(() => {
           {children}
         </div>
       </div>
-
+      
       {/* LOGOUT MODAL */}
       {showLogoutModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

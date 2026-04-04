@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom"
 import { supabase } from "../lib/supabaseClient"
 import {
   Home, ClipboardList, Calendar, BarChart3, Bell, LogOut,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Settings
 } from "lucide-react"
 
 export default function AdminLayout({ children, backPath, backLabel }) {
@@ -23,53 +23,41 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     localStorage.setItem("admin_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
+  useEffect(() => {
+    const loadNotifications = async () => {
+      const { data } = await supabase
+        .from("notifications")
+        .select("*, profiles!notifications_sender_id_fkey(full_name)")
+        .eq("recipient_type", "admin")
+        .eq("sender_type", "applicant")
+        .order("created_at", { ascending: false })
+        .limit(50)
 
+      const all = data || []
+      const unread = all.filter(n => !n.is_read)
+      setNotifications(unread.slice(0, 10))
+      setUnreadCount(unread.length)
+    }
 
-useEffect(() => {
-  const loadNotifications = async () => {
-    const { data } = await supabase
-      .from("notifications")
-      .select("*, profiles!notifications_sender_id_fkey(full_name)")
-      .eq("recipient_type", "admin")
-      .eq("sender_type", "applicant")
-      .order("created_at", { ascending: false })
-      .limit(50)
+    loadNotifications()
 
-    const all = data || []
-    const unread = all.filter(n => !n.is_read)
+    const channel = supabase
+      .channel("admin-notifications-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => loadNotifications())
+      .subscribe()
 
-    setNotifications(unread.slice(0, 10))
-    setUnreadCount(unread.length)
-  }
+    const handler = (e) => setUnreadCount(e.detail.count)
+    window.addEventListener("adminUnreadCount", handler)
 
-  // ✅ initial load
-  loadNotifications()
-
-  // ✅ realtime subscription
-  const channel = supabase
-    .channel("admin-notifications-realtime")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "notifications" },
-      () => loadNotifications()
-    )
-    .subscribe()
-
-  // ✅ custom event listener
-  const handler = (e) => setUnreadCount(e.detail.count)
-  window.addEventListener("adminUnreadCount", handler)
-
-  return () => {
-    supabase.removeChannel(channel)
-    window.removeEventListener("adminUnreadCount", handler)
-  }
-}, [])
+    return () => {
+      supabase.removeChannel(channel)
+      window.removeEventListener("adminUnreadCount", handler)
+    }
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setShowDropdown(false)
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false)
     }
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
@@ -81,11 +69,7 @@ useEffect(() => {
   }
 
   const markAllAsRead = async () => {
-    await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("recipient_type", "admin")
-      .eq("is_read", false)
+    await supabase.from("notifications").update({ is_read: true }).eq("recipient_type", "admin").eq("is_read", false)
     setNotifications([])
     setUnreadCount(0)
   }
@@ -109,36 +93,32 @@ useEffect(() => {
     if (type === "application_submitted" || title.includes("new application") || title.includes("submitted")) return "bg-green-500"
     if (type === "renewal_request" || title.includes("renewal")) return "bg-orange-500"
     if (type === "appointment_request" || title.includes("appointment")) return "bg-blue-500"
-    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded")) return "bg-purple-500"
-    if (type === "inquiry" || title.includes("inquiry") || title.includes("question")) return "bg-yellow-400"
+    if (type === "document_uploaded" || title.includes("document")) return "bg-purple-500"
+    if (type === "inquiry" || title.includes("inquiry")) return "bg-yellow-400"
     return "bg-gray-400"
   }
 
   const formatTime = (date) => {
-    const now = new Date()
-    const d = new Date(date)
-    const diffMs = now - d
-    const diffMin = Math.floor(diffMs / 60000)
-    const diffHr = Math.floor(diffMin / 60)
-    const diffDay = Math.floor(diffHr / 24)
+    const diffMin = Math.floor((new Date() - new Date(date)) / 60000)
     if (diffMin < 1) return "Just now"
     if (diffMin < 60) return `${diffMin}m ago`
-    if (diffHr < 24) return `${diffHr}h ago`
-    return `${diffDay}d ago`
+    if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`
+    return `${Math.floor(diffMin / 1440)}d ago`
   }
 
   const menuItems = [
-    { path: "/admin/dashboard", icon: Home, label: "Home" },
-    { path: "/admin/applications", icon: ClipboardList, label: "Applications" },
-    { path: "/admin/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/admin/reports", icon: BarChart3, label: "Reports" },
-    { path: "/admin/notifications", icon: Bell, label: "Notifications" },
+    { path: "/admin/dashboard",     icon: Home,         label: "Home" },
+    { path: "/admin/applications",  icon: ClipboardList, label: "Applications" },
+    { path: "/admin/appointments",  icon: Calendar,     label: "Appointments" },
+    { path: "/admin/reports",       icon: BarChart3,    label: "Reports" },
+    { path: "/admin/notifications", icon: Bell,         label: "Notifications", badge: true },
+    { path: "/admin/settings",      icon: Settings,     label: "Settings" },
   ]
 
   return (
     <div className="flex h-screen overflow-hidden">
 
-      {/* SIDEBAR */}
+      {/* ── SIDEBAR ── */}
       <div className={`flex-shrink-0 bg-gradient-to-b from-orange-600 to-orange-500 text-white flex flex-col shadow-xl transition-all duration-300 h-screen sticky top-0 ${collapsed ? "w-16" : "w-56"}`}>
 
         {/* Logo */}
@@ -155,10 +135,7 @@ useEffect(() => {
         </div>
 
         {/* Toggle */}
-        <button
-          onClick={() => setCollapsed(prev => !prev)}
-          className="mx-auto mt-2 text-orange-200 hover:text-white transition"
-        >
+        <button onClick={() => setCollapsed(prev => !prev)} className="mx-auto mt-2 text-orange-200 hover:text-white transition">
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
 
@@ -167,19 +144,14 @@ useEffect(() => {
           {menuItems.map((item) => {
             const Icon = item.icon
             const isActive = location.pathname === item.path
-            const isBell = item.path === "/admin/notifications"
             return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
+              <button key={item.path} onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition relative ${
                   isActive ? "bg-white text-orange-600 shadow" : "text-white hover:bg-orange-400"
-                }`}
-              >
+                }`}>
                 <Icon className="w-5 h-5 flex-shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-                {/* ✅ Red badge on sidebar bell */}
-                {isBell && unreadCount > 0 && (
+                {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
+                {item.badge && unreadCount > 0 && (
                   <span className={`absolute ${collapsed ? "top-0.5 right-0.5" : "right-3"} bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none`}>
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
@@ -191,30 +163,25 @@ useEffect(() => {
 
         {/* Logout */}
         <div className="p-3 border-t border-orange-400">
-          <button
-            onClick={() => setShowLogoutModal(true)}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-white hover:bg-orange-400 transition"
-          >
+          <button onClick={() => setShowLogoutModal(true)}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-white hover:bg-orange-400 transition">
             <LogOut className="w-5 h-5 flex-shrink-0" />
             {!collapsed && <span>Logout</span>}
           </button>
         </div>
       </div>
 
-      {/* MAIN */}
+      {/* ── MAIN ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* TOP BAR */}
+        {/* Top Bar */}
         <div className="bg-white shadow-sm px-6 py-3 flex justify-between items-center flex-shrink-0">
           <p className="text-sm text-gray-500">Municipality of San Jose, Occidental Mindoro</p>
 
           <div className="flex items-center gap-4 relative" ref={dropdownRef}>
 
-            {/* 🔔 Bell Button */}
-            <button
-              onClick={() => setShowDropdown(prev => !prev)}
-              className="relative p-1"
-            >
+            {/* Bell */}
+            <button onClick={() => setShowDropdown(prev => !prev)} className="relative p-1">
               <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none">
@@ -223,27 +190,19 @@ useEffect(() => {
               )}
             </button>
 
-            {/* 🔽 Bell Dropdown */}
+            {/* Bell Dropdown */}
             {showDropdown && (
               <div className="absolute right-0 top-9 w-80 bg-white shadow-xl rounded-xl border border-gray-100 z-50 overflow-hidden">
-
-                {/* Dropdown Header */}
                 <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
                   <div>
                     <p className="text-sm font-bold text-gray-800">🔔 Notifications</p>
                     <p className="text-xs text-gray-400">{unreadCount} unread</p>
                   </div>
                   {unreadCount > 0 && (
-                    <button
-                      onClick={markAllAsRead}
-                      className="text-xs text-orange-500 hover:underline font-medium"
-                    >
-                      Mark all read
-                    </button>
+                    <button onClick={markAllAsRead} className="text-xs text-orange-500 hover:underline font-medium">Mark all read</button>
                   )}
                 </div>
 
-                {/* Dropdown List */}
                 {notifications.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 text-sm">
                     <p className="text-2xl mb-2">🔔</p>
@@ -252,19 +211,14 @@ useEffect(() => {
                 ) : (
                   <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
                     {notifications.map((notif) => (
-                      <div
-                        key={notif.id}
-                        onClick={() => handleBellNotifClick(notif)}
-                        className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition"
-                      >
+                      <div key={notif.id} onClick={() => handleBellNotifClick(notif)}
+                        className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition">
                         <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getNotifDot(notif)}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-gray-800 truncate">{notif.title}</p>
                           <p className="text-xs text-gray-500 truncate mt-0.5">{notif.message}</p>
                           {notif.profiles?.full_name && (
-                            <p className="text-xs text-orange-400 mt-0.5 truncate">
-                              👤 {notif.profiles.full_name}
-                            </p>
+                            <p className="text-xs text-orange-400 mt-0.5 truncate">👤 {notif.profiles.full_name}</p>
                           )}
                           <p className="text-xs text-gray-400 mt-1">{formatTime(notif.created_at)}</p>
                         </div>
@@ -273,24 +227,18 @@ useEffect(() => {
                   </div>
                 )}
 
-                {/* View All */}
                 <div className="border-t">
-                  <button
-                    onClick={() => { setShowDropdown(false); navigate("/admin/notifications") }}
-                    className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition"
-                  >
+                  <button onClick={() => { setShowDropdown(false); navigate("/admin/notifications") }}
+                    className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition">
                     View All Notifications →
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Back Button */}
             {backPath && (
-              <button
-                onClick={() => navigate(backPath)}
-                className="flex items-center gap-1 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition border border-orange-200"
-              >
+              <button onClick={() => navigate(backPath)}
+                className="flex items-center gap-1 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition border border-orange-200">
                 ← {backLabel || "Back"}
               </button>
             )}
@@ -307,7 +255,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* LOGOUT MODAL */}
+      {/* Logout Modal */}
       {showLogoutModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm border-t-4 border-orange-500">
@@ -317,18 +265,8 @@ useEffect(() => {
               <p className="text-sm text-gray-500 mt-1">Are you sure you want to logout?</p>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={handleLogout}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition"
-              >
-                Yes, Logout
-              </button>
-              <button
-                onClick={() => setShowLogoutModal(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition"
-              >
-                Cancel
-              </button>
+              <button onClick={handleLogout} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition">Yes, Logout</button>
+              <button onClick={() => setShowLogoutModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition">Cancel</button>
             </div>
           </div>
         </div>

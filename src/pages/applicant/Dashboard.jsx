@@ -38,9 +38,9 @@ export default function ApplicantDashboard() {
       <div className="max-w-7xl mx-auto">
 
         {/* Welcome Banner */}
-        <div className="bg-blue-900 text-white rounded-xl p-6 mb-6 border-l-4 border-orange-500">
-          <h1 className="text-2xl font-bold">Good Day, {profile?.full_name}! 🛺</h1>
-          <p className="text-blue-200 text-sm mt-1">Welcome to your eFranchise System Dashboard.</p>
+        <div className="rounded-xl px-6 py-5 bg-blue-50 border border-blue-200 shadow-sm mb-6">
+          <h1 className="text-2xl text-black font-bold">Good Day, {profile?.full_name}! 🛺</h1>
+          <p className="text-black text-sm mt-1">Welcome to your eFranchise System Dashboard.</p>
         </div>
 
         {/* Stats */}

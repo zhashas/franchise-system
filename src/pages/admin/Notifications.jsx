@@ -44,8 +44,6 @@ export default function AdminNotifications() {
       return "renewal"
     if (type === "appointment_request" || title.includes("appointment"))
       return "appointment"
-    if (type === "document_uploaded" || title.includes("document") || title.includes("uploaded"))
-      return "document"
     if (type === "inquiry" || title.includes("inquiry") || title.includes("question"))
       return "inquiry"
     return "other"
@@ -57,7 +55,6 @@ export default function AdminNotifications() {
       new_application: "bg-green-500",
       renewal: "bg-orange-500",
       appointment: "bg-blue-500",
-      document: "bg-purple-500",
       inquiry: "bg-yellow-400",
       other: "bg-gray-400"
     }
@@ -69,7 +66,6 @@ export default function AdminNotifications() {
     { key: "new_application", label: "New Application", dot: "bg-green-500" },
     { key: "renewal", label: "Renewal Request", dot: "bg-orange-500" },
     { key: "appointment", label: "Appointment", dot: "bg-blue-500" },
-    { key: "document", label: "Document Upload", dot: "bg-purple-500" },
     { key: "inquiry", label: "Inquiry", dot: "bg-yellow-400" },
   ]
 
@@ -108,7 +104,6 @@ export default function AdminNotifications() {
       appointment: "→ View Appointments",
       new_application: "→ View Application",
       renewal: "→ View Applications",
-      document: "→ View Application",
       inquiry: "→ View Details"
     }
     return labels[category] || "→ View Applications"

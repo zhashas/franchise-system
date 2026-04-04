@@ -1,24 +1,32 @@
-import FranchiseRenewal from "../pages/applicant/FranchiseRenewal";
-import ApplicantSettings from "../pages/applicant/Settings";
-import ApplicantNotifications from "../pages/applicant/Notifications";
-import AdminNotifications from "../pages/admin/Notifications";
-import ApplicantAppointments from "../pages/applicant/Appointments";
-import StaffDashboard from "../pages/staff/Dashboard";
-import AdminReports from "../pages/admin/AdminReports";
-import AdminAppointments from "../pages/admin/Appointments";
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-
 import Login from "../pages/Login";
 import Register from "../pages/Register";
 
-import AdminDashboard from "../pages/admin/Dashboard";
+import ApplicantSettings from "../pages/applicant/Settings";
+import ApplicantNotifications from "../pages/applicant/Notifications";
 import ApplicantDashboard from "../pages/applicant/Dashboard";
 import Apply from "../pages/applicant/Apply";
+import ApplicantAppointments from "../pages/applicant/Appointments";
+
+import AdminNotifications from "../pages/admin/Notifications";
+import AdminReports from "../pages/admin/AdminReports";
+import AdminAppointments from "../pages/admin/Appointments";
+import AdminSettings from "../pages/admin/Settings";
+import AdminDashboard from "../pages/admin/Dashboard";
 import AdminApplications from "../pages/admin/Applications";
 import AdminApplicationDetail from "../pages/admin/AdminApplicationDetail";
+
+import StaffDashboard from "../pages/staff/Dashboard";
+import StaffApplications from "../pages/staff/Applications";
+import StaffAppointments from "../pages/staff/Appointments";
+import StaffReports from "../pages/staff/Reports";
+import StaffNotifications from "../pages/staff/Notifications"; 
+import StaffSettings from "../pages/staff/Settings";
+
+
 
 // Protected Route
 function ProtectedRoute({ children, allowedRoles }) {
@@ -125,17 +133,14 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-
-        {/* Staff Routes */}
         <Route
-          path="/staff/dashboard"
+          path="/admin/settings"
           element={
-            <ProtectedRoute allowedRoles={["staff"]}>
-              <StaffDashboard />
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminSettings />
             </ProtectedRoute>
           }
         />
-
         {/* Applicant Routes */}
         <Route
           path="/applicant/dashboard"
@@ -181,15 +186,56 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-
+        {/* Staff Routes */}
         <Route
-          path="/applicant/franchise-renewal"
+          path="/staff/dashboard"
           element={
-            <ProtectedRoute allowedRoles={["applicant"]}>
-              <FranchiseRenewal />
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffDashboard />
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/staff/applications"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffApplications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/appointments"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffAppointments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/reports"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffReports />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/notifications"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/settings"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffSettings />
+            </ProtectedRoute>
+          }
+        />
+
       </Routes>
     </BrowserRouter>
   );
