@@ -9,10 +9,13 @@ export default function ApplicantNotifications() {
   const [filter, setFilter]               = useState("all")
   const navigate                          = useNavigate()
 
-  // Keep userId in a ref so realtime callback always has access to it
   const userIdRef = useRef(null)
 
-  // ── Fetch ────────────────────────────────────────────────────────────────
+  // ── Fetch ─────────────────────────────────────────────────────────────────
+  // NOTE: We do NOT filter by sender_type here.
+  // Notifications can arrive from "admin" (manual blasts) OR "system"
+  // (scheduled expiry warnings, MTOP reminders, recycle alerts).
+  // Filtering by sender_type would silently drop all system notifications.
   const fetchNotifications = async (uid) => {
     const userId = uid || userIdRef.current
     if (!userId) return
@@ -20,9 +23,10 @@ export default function ApplicantNotifications() {
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
-      .eq("recipient_id", userId)          // ← correct column name
+      .eq("recipient_id", userId)
       .eq("recipient_type", "applicant")
-      .eq("sender_type", "admin")
+      // ← sender_type filter intentionally removed so both "admin" and
+      //   "system" notifications are visible to the applicant.
       .order("created_at", { ascending: false })
 
     if (error) console.error("Fetch notifications error:", error)
@@ -30,7 +34,7 @@ export default function ApplicantNotifications() {
     setLoading(false)
   }
 
-  // ── Initial load ─────────────────────────────────────────────────────────
+  // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -41,11 +45,7 @@ export default function ApplicantNotifications() {
     load()
   }, [])
 
-  // ── Real-time: listen for INSERT on notifications for this user ───────────
-  // NOTE: Supabase realtime postgres_changes filters only support simple
-  //       equality on indexed columns. We filter in JS to avoid the
-  //       "cannot add postgres_changes callbacks after subscribe()" error
-  //       caused by subscribing with complex filters.
+  // ── Real-time: listen for INSERT on notifications ─────────────────────────
   useEffect(() => {
     let channel
 
@@ -63,14 +63,12 @@ export default function ApplicantNotifications() {
             table:  "notifications",
           },
           (payload) => {
-            // Only act on rows meant for THIS applicant
             const row = payload.new
+            // Accept notifications from both "admin" and "system" senders
             if (
               row.recipient_id   === user.id &&
-              row.recipient_type === "applicant" &&
-              row.sender_type    === "admin"
+              row.recipient_type === "applicant"
             ) {
-              // Prepend new notification without a full re-fetch
               setNotifications(prev => [row, ...prev])
             }
           }
@@ -104,7 +102,6 @@ export default function ApplicantNotifications() {
       title.includes("for release") ||
       title.includes("release")
     ) {
-      // For-release: show dashboard (or a dedicated page if you have one)
       navigate("/applicant/dashboard")
     } else if (
       type.includes("status") ||
@@ -112,8 +109,6 @@ export default function ApplicantNotifications() {
       title.includes("rejected") ||
       title.includes("review")
     ) {
-      navigate("/applicant/dashboard")
-    } else if (notif.application_id) {
       navigate("/applicant/dashboard")
     } else {
       navigate("/applicant/dashboard")
@@ -135,30 +130,54 @@ export default function ApplicantNotifications() {
       .eq("is_read", false)
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Status dot color ──────────────────────────────────────────────────────
   const statusDot = (notif) => {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
 
-    if (type === "status_approved"    || title.includes("approved"))    return "bg-green-500"
-    if (type === "status_rejected"    || title.includes("rejected"))    return "bg-red-500"
-    if (type === "status_for_release" || title.includes("release"))     return "bg-purple-500"
-    if (type === "status_under_review"|| title.includes("review"))      return "bg-blue-500"
-    if (type.includes("appointment")  || title.includes("appointment")) return "bg-blue-400"
-    if (type.includes("document")     || title.includes("document"))    return "bg-yellow-400"
-    if (type.includes("renewal")      || title.includes("renewal"))     return "bg-orange-500"
+    if (type === "status_approved"         || title.includes("approved"))     return "bg-green-500"
+    if (type === "status_rejected"         || title.includes("rejected"))     return "bg-red-500"
+    if (type === "status_for_release"      || title.includes("release"))      return "bg-purple-500"
+    if (type === "status_under_review"     || title.includes("review"))       return "bg-blue-500"
+    if (type.includes("appointment")       || title.includes("appointment"))  return "bg-blue-400"
+    if (type.includes("franchise_expired") || title.includes("expired"))      return "bg-red-600"
+    if (type.includes("franchise_recycled")|| title.includes("recycled"))     return "bg-purple-400"
+    if (type.includes("expiry_warning")    || title.includes("expir"))        return "bg-orange-500"
+    if (type.includes("mtop")             || title.includes("mtop"))          return "bg-blue-300"
+    if (type.includes("document")         || title.includes("document"))      return "bg-yellow-400"
+    if (type.includes("renewal")          || title.includes("renewal"))       return "bg-orange-500"
     return "bg-gray-400"
   }
 
+  // ── Sender badge ──────────────────────────────────────────────────────────
+  const senderBadge = (notif) => {
+    if (notif.sender_type === "system") {
+      return (
+        <span className="inline-block text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold">
+          🤖 System
+        </span>
+      )
+    }
+    return (
+      <span className="inline-block text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-semibold">
+        👤 Admin
+      </span>
+    )
+  }
+
+  // ── Redirect label ────────────────────────────────────────────────────────
   const getRedirectLabel = (notif) => {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
 
     if (type.includes("appointment") || title.includes("appointment")) return "→ View Appointments"
-    if (title.includes("approved"))   return "→ Application Approved"
-    if (title.includes("rejected"))   return "→ See Details"
-    if (title.includes("release"))    return "→ Visit Municipal Hall"
-    if (title.includes("review"))     return "→ Under Review"
+    if (title.includes("approved"))    return "→ Application Approved"
+    if (title.includes("rejected"))    return "→ See Details"
+    if (title.includes("release"))     return "→ Visit Municipal Hall"
+    if (title.includes("review"))      return "→ Under Review"
+    if (type.includes("expiry") || title.includes("expir")) return "→ Renew at Municipal Hall"
+    if (type.includes("mtop")   || title.includes("mtop"))  return "→ Pay MTOP Sticker"
+    if (type.includes("recycled"))     return "→ Apply for New Franchise"
     return "→ Go to Dashboard"
   }
 
@@ -208,8 +227,8 @@ export default function ApplicantNotifications() {
           </div>
 
           {/* FILTER */}
-          <div className="px-6 py-3 border-b bg-white flex items-center gap-3">
-            <span className="text-xs text-gray-500 font-medium">Filter by:</span>
+          <div className="px-6 py-3 border-b bg-white flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-gray-500 font-medium">Filter:</span>
             <div className="flex gap-2">
               {["all", "unread", "read"].map(f => (
                 <button
@@ -225,7 +244,7 @@ export default function ApplicantNotifications() {
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-xs text-gray-400">{unreadCount} unread</span>
+            <span className="ml-auto text-xs text-gray-400">{unreadCount} unread · {notifications.length} total</span>
           </div>
 
           {/* BODY */}
@@ -248,14 +267,19 @@ export default function ApplicantNotifications() {
                       : "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-400"
                   }`}
                 >
-                  <div className="flex-shrink-0 mt-1">
+                  {/* Status dot */}
+                  <div className="flex-shrink-0 mt-1.5">
                     <div className={`w-3 h-3 rounded-full ${statusDot(notif)}`} />
                   </div>
 
+                  {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold ${notif.is_read ? "text-gray-500" : "text-gray-800"}`}>
-                      {notif.title}
-                    </p>
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <p className={`text-sm font-semibold ${notif.is_read ? "text-gray-500" : "text-gray-800"}`}>
+                        {notif.title}
+                      </p>
+                      {senderBadge(notif)}
+                    </div>
                     <p className={`text-xs mt-0.5 ${notif.is_read ? "text-gray-400" : "text-gray-600"}`}>
                       {notif.message}
                     </p>
@@ -264,6 +288,7 @@ export default function ApplicantNotifications() {
                     </p>
                   </div>
 
+                  {/* Right meta */}
                   <div className="flex-shrink-0 text-right">
                     <p className="text-xs text-gray-400 whitespace-nowrap">
                       {formatDate(notif.created_at)}

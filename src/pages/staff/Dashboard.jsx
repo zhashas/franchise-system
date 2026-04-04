@@ -1,223 +1,183 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState} from "react"
 import { supabase } from "../../lib/supabaseClient"
 import { useNavigate } from "react-router-dom"
+import StaffLayout from "../../components/StaffLayout"
+
+const toDateObj = (str) => new Date(str + "T00:00:00")
+const diffDays  = (a, b) => Math.round((toDateObj(a) - toDateObj(b)) / 86_400_000)
+const todayStr  = () => new Date().toISOString().split("T")[0]
+const fmtDate   = (str) => toDateObj(str).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })
 
 export default function StaffDashboard() {
-  const [profile, setProfile] = useState(null)
+  const [profile,      setProfile]      = useState(null)
+  const [franchises,   setFranchises]   = useState([])
   const [applications, setApplications] = useState([])
   const [appointments, setAppointments] = useState([])
-  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  const fetchData = async () => {
+useEffect(() => {
+  const fetchAll = async () => {
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
 
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single()
-    setProfile(profileData)
+    const [{ data: prof }, { data: fr }, { data: apps }, { data: apts }] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", user.id).single(),
+      supabase.from("franchises").select("*").order("created_at", { ascending: false }),
+      supabase.from("applications")
+        .select("*, profiles(full_name, email)")
+        .order("created_at", { ascending: false })
+        .limit(5),
+      supabase.from("appointments")
+        .select("*, profiles(full_name)")
+        .order("scheduled_date", { ascending: true })
+        .limit(5),
+    ])
 
-    const { data: apps } = await supabase
-      .from("applications")
-      .select("*, profiles(full_name, email, phone)")
-      .order("submitted_at", { ascending: false })
+    setProfile(prof)
+    setFranchises(fr || [])
     setApplications(apps || [])
-
-    const { data: apts } = await supabase
-      .from("appointments")
-      .select("*, profiles(full_name, email)")
-      .order("scheduled_date", { ascending: true })
     setAppointments(apts || [])
-
-    setLoading(false)
   }
 
-  useEffect(() => {
-    (async () => {
-      await fetchData()
-    })()
-  }, [])
+  fetchAll()
+}, [])
 
-  const updateStatus = async (id, status) => {
-    await supabase
-      .from("applications")
-      .update({ status, updated_at: new Date() })
-      .eq("id", id)
-    fetchData()
-  }
+  const getDaysUntilExpiry = (d) => d ? diffDays(d, todayStr()) : null
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    navigate("/login")
-  }
+  const stats = [
+    { label: "Total Franchise Records", value: franchises.length,                                          icon: "🏢", color: "bg-orange-50 border-orange-200", text: "text-orange-600" },
+    { label: "Active Franchises",       value: franchises.filter(f => f.status === "active").length,       icon: "✅", color: "bg-green-50 border-green-200",   text: "text-green-600" },
+    { label: "Expired Franchises",      value: franchises.filter(f => f.status === "expired").length,      icon: "⛔", color: "bg-red-50 border-red-200",       text: "text-red-600" },
+    { label: "Available Slots",         value: franchises.filter(f => f.status === "available").length,    icon: "🟡", color: "bg-yellow-50 border-yellow-200", text: "text-yellow-600" },
+    { label: "Pending Applications",    value: applications.filter(a => a.status === "pending").length,    icon: "📋", color: "bg-blue-50 border-blue-200",     text: "text-blue-600" },
+    { label: "Today's Appointments",    value: appointments.filter(a => a.scheduled_date === todayStr()).length, icon: "📅", color: "bg-purple-50 border-purple-200", text: "text-purple-600" },
+  ]
 
-  const statusColor = (status) => {
-    if (status === "approved") return "bg-green-100 text-green-700"
-    if (status === "rejected") return "bg-red-100 text-red-700"
-    if (status === "under_review") return "bg-blue-100 text-blue-700"
+  const expiringSoon = franchises.filter(f => {
+    if (f.status !== "active") return false
+    const d = getDaysUntilExpiry(f.expiration_date)
+    return d !== null && d <= 30 && d > 0
+  })
+
+  const statusColor = (s) => {
+    if (s === "approved")     return "bg-green-100 text-green-700"
+    if (s === "rejected")     return "bg-red-100 text-red-700"
+    if (s === "under_review") return "bg-blue-100 text-blue-700"
+    if (s === "for_release")  return "bg-purple-100 text-purple-700"
     return "bg-yellow-100 text-yellow-700"
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center text-orange-500 font-semibold">
-      Loading...
-    </div>
-  )
+  const aptColor = (s) => {
+    if (s === "completed") return "bg-green-100 text-green-700"
+    if (s === "cancelled") return "bg-red-100 text-red-700"
+    return "bg-blue-100 text-blue-700"
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navbar */}
-      <nav className="bg-gradient-to-r from-orange-600 to-orange-400 text-white px-6 py-4 flex justify-between items-center shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="bg-white p-1.5 rounded-full">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <div>
-            <p className="font-bold text-sm leading-tight">San Jose Franchise System</p>
-            <p className="text-orange-100 text-xs">Municipality of San Jose, Occidental Mindoro</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-orange-100">👨‍💼 {profile?.full_name}</span>
-          <button
-            onClick={handleLogout}
-            className="bg-white text-orange-500 hover:bg-orange-50 text-sm px-4 py-1.5 rounded-lg font-semibold transition"
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
+    <StaffLayout>
+      <div className="max-w-7xl mx-auto space-y-6">
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Welcome */}
-        <div className="bg-blue-900 text-white rounded-xl p-6 mb-6 border-l-4 border-orange-500">
-          <h1 className="text-2xl font-bold">Staff Dashboard 👨‍💼</h1>
-          <p className="text-blue-200 text-sm mt-1">Review applications and manage appointment schedules.</p>
+        {/* HEADER */}
+        <div className="rounded-xl p-6 border bg-orange-100">
+          <h1 className="text-xl font-bold">STAFF DASHBOARD</h1>
+          <p className="text-sm mt-1">Welcome back, {profile?.full_name}. Here's today's overview.</p>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {[
-            { label: "Total Applications", value: applications.length, color: "border-blue-500" },
-            { label: "Pending", value: applications.filter(a => a.status === "pending").length, color: "border-yellow-500" },
-            { label: "Under Review", value: applications.filter(a => a.status === "under_review").length, color: "border-blue-400" },
-            { label: "Appointments", value: appointments.length, color: "border-orange-500" },
-          ].map((stat, i) => (
-            <div key={i} className={`bg-white rounded-xl p-4 shadow-sm border-t-4 ${stat.color}`}>
-              <p className="text-2xl font-bold text-blue-900">{stat.value}</p>
-              <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
+        {/* STATS */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {stats.map((s, i) => (
+            <div key={i} className={`p-4 rounded-lg shadow-sm border ${s.color}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xl">{s.icon}</span>
+                <span className={`text-3xl font-bold ${s.text}`}>{s.value}</span>
+              </div>
+              <p className="text-xs font-medium text-gray-600 mt-1">{s.label}</p>
             </div>
           ))}
         </div>
 
-        {/* Applications Table */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-bold text-blue-900">📋 Applications for Review</h2>
-            <p className="text-gray-500 text-xs">Review and update application statuses</p>
+        {/* EXPIRING SOON ALERT */}
+        {expiringSoon.length > 0 && (
+          <div className="bg-orange-50 border border-orange-300 rounded-lg px-4 py-3 text-sm text-orange-800">
+            <p className="font-bold mb-1">⚠️ Franchises Expiring Within 30 Days</p>
+            <ul className="list-disc list-inside space-y-0.5 text-orange-700 text-xs">
+              {expiringSoon.map(f => (
+                <li key={f.id}>
+                  <strong>{f.franchise_number}</strong> — {f.owner_name} — expires <strong>{fmtDate(f.expiration_date)}</strong>
+                  {" "}({getDaysUntilExpiry(f.expiration_date)} days left)
+                </li>
+              ))}
+            </ul>
           </div>
-          {applications.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-4xl mb-2">📄</p>
-              <p>No applications found.</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr className="text-left text-gray-500">
-                  <th className="px-6 py-3">Applicant</th>
-                  <th className="px-6 py-3">Contact</th>
-                  <th className="px-6 py-3">Type</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {applications.map((app) => (
-                  <tr key={app.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-blue-900">
-                      {app.profiles?.full_name}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">
-                      <p>{app.profiles?.email}</p>
-                      <p className="text-xs">{app.profiles?.phone}</p>
-                    </td>
-                    <td className="px-6 py-4 capitalize">{app.type}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColor(app.status)}`}>
-                        {app.status.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">
-                      {new Date(app.submitted_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex gap-2">
-                        {app.status === "pending" && (
-                          <button
-                            onClick={() => updateStatus(app.id, "under_review")}
-                            className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded text-xs font-medium transition"
-                          >
-                            Review
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        )}
+
+        {/* QUICK ACTIONS */}
+        <div className="grid md:grid-cols-4 gap-4">
+          {[
+            { label: "APPLICATIONS",      path: "/staff/applications",       color: "bg-green-100 hover:bg-green-200 border-green-300" },
+            { label: "APPOINTMENTS",      path: "/staff/appointments",       color: "bg-blue-100 hover:bg-blue-200 border-blue-300" },
+            { label: "REPORTS",           path: "/staff/reports",            color: "bg-purple-100 hover:bg-purple-200 border-purple-300" },
+            { label: "MANUAL APPLICATION",path: "/staff/manual-application", color: "bg-orange-100 hover:bg-orange-200 border-orange-300" },
+          ].map((btn, i) => (
+            <button key={i} onClick={() => navigate(btn.path)}
+              className={`p-5 border rounded-md font-bold text-black shadow-sm transition ${btn.color}`}>
+              {btn.label}
+            </button>
+          ))}
         </div>
 
-        {/* Upcoming Appointments */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-bold text-blue-900">📅 Upcoming Appointments</h2>
-          </div>
-          {appointments.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-4xl mb-2">📅</p>
-              <p>No appointments scheduled.</p>
+        {/* RECENT APPLICATIONS & APPOINTMENTS */}
+        <div className="grid md:grid-cols-2 gap-6">
+
+          {/* Recent Applications */}
+          <div className="border rounded-xl bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3 border-b pb-2">
+              <h2 className="font-bold text-sm text-gray-800">📋 Recent Applications</h2>
+              <button onClick={() => navigate("/staff/applications")}
+                className="text-xs text-blue-500 hover:underline">View All →</button>
             </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr className="text-left text-gray-500">
-                  <th className="px-6 py-3">Applicant</th>
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3">Time</th>
-                  <th className="px-6 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {appointments.map((apt) => (
-                  <tr key={apt.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-blue-900">
-                      {apt.profiles?.full_name}
-                      <p className="text-xs text-gray-400">{apt.profiles?.email}</p>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {new Date(apt.scheduled_date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">{apt.scheduled_time}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColor(apt.status)}`}>
-                        {apt.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+            {applications.length === 0
+              ? <p className="text-xs text-gray-400 text-center py-4">No applications yet.</p>
+              : applications.map(a => (
+                <div key={a.id} onClick={() => navigate(`/staff/applications/${a.id}`)}
+                  className="flex justify-between items-center py-2 border-b last:border-0 cursor-pointer hover:bg-gray-50 rounded px-1">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{a.profiles?.full_name || "—"}</p>
+                    <p className="text-xs text-gray-400">{a.type} · {new Date(a.created_at).toLocaleDateString("en-PH")}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${statusColor(a.status)}`}>
+                    {a.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+
+          {/* Upcoming Appointments */}
+          <div className="border rounded-xl bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3 border-b pb-2">
+              <h2 className="font-bold text-sm text-gray-800">📅 Upcoming Appointments</h2>
+              <button onClick={() => navigate("/staff/appointments")}
+                className="text-xs text-blue-500 hover:underline">View All →</button>
+            </div>
+            {appointments.length === 0
+              ? <p className="text-xs text-gray-400 text-center py-4">No appointments yet.</p>
+              : appointments.map(a => (
+                <div key={a.id} className="flex justify-between items-center py-2 border-b last:border-0">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{a.profiles?.full_name || "—"}</p>
+                    <p className="text-xs text-gray-400">{a.scheduled_date} · {a.scheduled_time}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${aptColor(a.status)}`}>
+                    {a.status}
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+
         </div>
       </div>
-    </div>
+    </StaffLayout>
   )
 }

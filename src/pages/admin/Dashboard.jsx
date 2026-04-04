@@ -1,462 +1,341 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../../lib/supabaseClient"
 import { useNavigate } from "react-router-dom"
 import AdminLayout from "../../components/AdminLayout"
 
-export default function AdminDashboard() {
-  const [profile, setProfile] = useState(null)
-  const [franchises, setFranchises] = useState([])
+const TOTAL_SLOTS = 5200
 
-  const emptyForm = {
-    franchise_number: "",
-    plate_number: "",
-    owner_name: "",
-    date_issued: "",
-    expiration_date: "",
-    status: "available",
+const toDateObj = (str) => new Date(str + "T00:00:00")
+const diffDays  = (a, b) => Math.round((toDateObj(a) - toDateObj(b)) / 86_400_000)
+const todayStr  = () => new Date().toISOString().split("T")[0]
+const addDays   = (str, n) => { const d = toDateObj(str); d.setDate(d.getDate() + n); return d.toISOString().split("T")[0] }
+const fmtDate   = (str) => str ? toDateObj(str).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }) : "—"
+const isJanuary = () => new Date().getMonth() === 0
+
+const dedupKey         = (type, id, date) => `${type}_${id}_${date}`
+const notifAlreadySent = async (key) => {
+  try {
+    const { data } = await supabase.from("notifications").select("id").eq("dedup_key", key).maybeSingle()
+    return !!data
+  } catch { return false }
+}
+const sendNotification = async ({ recipientId, type, title, message, franchiseId, key }) => {
+  if (await notifAlreadySent(key)) return
+  await supabase.from("notifications").insert({
+    recipient_id: recipientId, recipient_type: "applicant", sender_type: "system",
+    notification_type: type, title, message, is_read: false,
+    dedup_key: key,
+    ...(franchiseId ? { franchise_id: franchiseId } : {}),
+  })
+}
+
+const runScheduledNotifications = async (franchises) => {
+  const today = todayStr()
+  let count = 0
+  for (const f of franchises) {
+    if (!f.applicant_id || !f.date_issued || !f.expiration_date) continue
+    const rid = f.applicant_id
+    for (const yearN of [1, 2]) {
+      const ann = (() => { const d = toDateObj(f.date_issued); d.setFullYear(d.getFullYear() + yearN); return d.toISOString().split("T")[0] })()
+      const trigger = addDays(ann, -30)
+      if (today === trigger) {
+        const key = dedupKey("mtop_sticker_reminder", f.id, trigger)
+        await sendNotification({ recipientId: rid, type: "mtop_sticker_reminder", title: "📋 Annual MTOP Sticker Payment Due Soon", message: `Your annual MTOP sticker payment is due on ${fmtDate(ann)} (Year ${yearN} of franchise ${f.franchise_number}). Visit the Municipal Hall to settle your payment.`, franchiseId: f.id, key })
+        count++
+      }
+    }
+    const d30 = addDays(f.expiration_date, -30)
+    if (today === d30) {
+      const key = dedupKey("expiry_warning_30", f.id, today)
+      await sendNotification({ recipientId: rid, type: "franchise_expiry_warning_30", title: "⚠️ Franchise Expiring in 30 Days", message: `Your franchise (${f.franchise_number}) expires on ${fmtDate(f.expiration_date)} – 30 days from now. Please begin your renewal process.`, franchiseId: f.id, key })
+      count++
+    }
+    const d15 = addDays(f.expiration_date, -15)
+    if (today === d15) {
+      const key = dedupKey("expiry_warning_15", f.id, today)
+      await sendNotification({ recipientId: rid, type: "franchise_expiry_warning_15", title: "🚨 Franchise Expiring in 15 Days – Urgent", message: `URGENT: Your franchise (${f.franchise_number}) expires on ${fmtDate(f.expiration_date)}, only 15 days away. Renew immediately at the Municipal Hall.`, franchiseId: f.id, key })
+      count++
+    }
   }
+  return count
+}
 
-  const [form, setForm] = useState(emptyForm)
-  const [editingId, setEditingId] = useState(null)
+const freezeExpiredFranchises = async (franchises) => {
+  const today = todayStr()
+  let recycled = 0
+  for (const f of franchises) {
+    if (f.status !== "active" && f.status !== "expired") continue
+    if (!f.expiration_date) continue
+    const daysSinceExpiry = diffDays(today, f.expiration_date)
+    if (daysSinceExpiry >= 30) {
+      const { error } = await supabase.from("franchises").update({ status: "available", applicant_id: null }).eq("id", f.id)
+      if (!error) {
+        recycled++
+        if (f.applicant_id) {
+          const key = dedupKey("franchise_recycled", f.id, today)
+          await sendNotification({
+            recipientId: f.applicant_id, type: "franchise_recycled",
+            title: "🔄 Franchise Number Recycled",
+            message: `Your franchise (${f.franchise_number}) has been inactive for 30+ days after expiration. The slot has been recycled and is now available for new registrations.`,
+            franchiseId: f.id, key,
+          })
+        }
+      }
+    } else if (daysSinceExpiry >= 0 && f.status === "active") {
+      await supabase.from("franchises").update({ status: "expired" }).eq("id", f.id)
+      if (f.applicant_id) {
+        const key = dedupKey("franchise_expired_notif", f.id, f.expiration_date)
+        await sendNotification({
+          recipientId: f.applicant_id, type: "franchise_expired",
+          title: "⛔ Your Franchise Has Expired",
+          message: `Your franchise (${f.franchise_number}) expired on ${fmtDate(f.expiration_date)}. Please renew within 30 days to retain your franchise number, otherwise it will be recycled.`,
+          franchiseId: f.id, key,
+        })
+      }
+    }
+  }
+  return recycled
+}
+
+export default function AdminDashboard() {
+  const [profile,     setProfile]     = useState(null)
+  const [franchises,  setFranchises]  = useState([])
+  const [blasting,    setBlasting]    = useState({})
+  const [blastResult, setBlastResult] = useState({})
   const navigate = useNavigate()
+
+  const fetchData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+    const [{ data: prof }, { data: fr }] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", user.id).single(),
+      supabase.from("franchises").select("*").order("franchise_number", { ascending: true }),
+    ])
+    setProfile(prof)
+    const list = fr || []
+    setFranchises(list)
+    return list
+  }, [])
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: profileData } = await supabase
-        .from("profiles").select("*").eq("id", user.id).single()
-
-      const { data: fr } = await supabase
-        .from("franchises").select("*")
-        .order("created_at", { ascending: false })
-
-      setProfile(profileData)
-      setFranchises(fr || [])
-    })()
-  }, [])
-
-  const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profileData } = await supabase
-      .from("profiles").select("*").eq("id", user.id).single()
-    setProfile(profileData)
-
-    const { data: fr } = await supabase
-      .from("franchises").select("*")
-      .order("created_at", { ascending: false })
-    setFranchises(fr || [])
-  }
-
-  // ========================
-  // FRONT-END VALIDATION
-  // ========================
-  const validate = () => {
-    const plateRegex = /^[A-Z]{2,3}-[0-9]{3,4}$/
-
-    if (!form.franchise_number.trim()) {
-      alert("Franchise number is required.")
-      return false
-    }
-    if (!form.plate_number.trim()) {
-      alert("Plate number is required.")
-      return false
-    }
-    if (!plateRegex.test(form.plate_number.trim())) {
-      alert("Invalid plate number format.\nExpected format: ABC-1234 or AB-123")
-      return false
-    }
-    if (!form.owner_name.trim()) {
-      alert("Owner name is required.")
-      return false
-    }
-    if (!form.date_issued) {
-      alert("Date issued is required.")
-      return false
-    }
-    if (!form.expiration_date) {
-      alert("Expiration date is required.")
-      return false
-    }
-    if (new Date(form.expiration_date) <= new Date(form.date_issued)) {
-      alert("Expiration date must be after the date issued.")
-      return false
-    }
-    return true
-  }
-
-  // ========================
-  // FRIENDLY DB ERROR PARSER
-  // ========================
-  const parseDbError = (error) => {
-    if (!error) return "An unknown error occurred."
-
-    if (error.code === "23505") {
-      if (error.message.includes("unique_franchise_number"))
-        return "This franchise number already exists. Please use a different one."
-      if (error.message.includes("unique_plate_number"))
-        return "This plate number is already registered. Please check and try again."
-      return "A duplicate entry was detected. Please check your inputs."
-    }
-
-    if (error.code === "23514") {
-      if (error.message.includes("valid_plate_format"))
-        return "Invalid plate number format. Use format: ABC-1234 or AB-123"
-      if (error.message.includes("valid_date_range"))
-        return "Expiration date must be after the date issued."
-      return "One of the values you entered is not valid."
-    }
-
-    if (error.code === "42501") {
-      return "Permission denied. You may not have access to perform this action."
-    }
-
-    return error.message || "Something went wrong. Please try again."
-  }
-
-  // ========================
-  // SUBMIT (CREATE / UPDATE)
-  // ========================
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!validate()) return
-
-    const payload = {
-      franchise_number: form.franchise_number.trim().toUpperCase(),
-      plate_number: form.plate_number.trim().toUpperCase(),
-      owner_name: form.owner_name.trim(),
-      date_issued: form.date_issued,
-      expiration_date: form.expiration_date,
-      status: form.status,
-    }
-
-    try {
-      if (editingId) {
-        const { error } = await supabase
-          .from("franchises")
-          .update(payload)
-          .eq("id", editingId)
-
-        if (error) {
-          console.error("Update error:", error)
-          alert(parseDbError(error))
-          return
-        }
-      } else {
-        const { error } = await supabase
-          .from("franchises")
-          .insert([payload])
-
-        if (error) {
-          console.error("Insert error:", error)
-          alert(parseDbError(error))
-          return
-        }
+      const list = await fetchData()
+      if (list.length) {
+        const recycled = await freezeExpiredFranchises(list)
+        await runScheduledNotifications(list)
+        if (recycled > 0) await fetchData()
       }
+    })()
+  }, [fetchData])
 
-      await fetchData()
-      setForm(emptyForm)
-      setEditingId(null)
+  const active    = franchises.filter(f => f.status === "active").length
+  const expired   = franchises.filter(f => f.status === "expired").length
+  const available = franchises.filter(f => f.status === "available").length
+  const total     = franchises.length
+  const freeSlots = TOTAL_SLOTS - active
 
-    } catch (err) {
-      console.error("Submit error:", err)
-      alert("Unexpected error. Please try again.")
-    }
-  }
+  const getDaysLeft = (f) => f.expiration_date ? diffDays(f.expiration_date, todayStr()) : null
 
-  // ========================
-  // EDIT
-  // ========================
-  const handleEdit = (f) => {
-    setForm({
-      franchise_number: f.franchise_number || "",
-      plate_number: f.plate_number || "",
-      owner_name: f.owner_name || "",
-      date_issued: f.date_issued || "",
-      expiration_date: f.expiration_date || "",
-      status: f.status || "available",
+  const expiringSoonList = franchises.filter(f => {
+    const d = getDaysLeft(f)
+    return f.status === "active" && d !== null && d > 0 && d <= 30
+  })
+  const expiredList = franchises.filter(f => f.status === "expired")
+
+  const blastExpiringSoon = async () => {
+    setBlasting(p => ({ ...p, expiry: true }))
+    setBlastResult(p => ({ ...p, expiry: null }))
+    const targets = franchises.filter(f => {
+      if (!f.applicant_id || !f.expiration_date || f.status !== "active") return false
+      const d = getDaysLeft(f)
+      return d !== null && d > 0 && d <= 30
     })
-    setEditingId(f.id)
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })
-  }
-
-  // ========================
-  // DELETE
-  // ========================
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this franchise record?")) return
-    const { error } = await supabase.from("franchises").delete().eq("id", id)
-    if (error) {
-      alert("Failed to delete: " + error.message)
-      return
+    let sent = 0
+    for (const f of targets) {
+      const days = getDaysLeft(f)
+      const key  = dedupKey("blast_expiry_soon", f.id, todayStr())
+      if (await notifAlreadySent(key)) continue
+      await supabase.from("notifications").insert({
+        recipient_id: f.applicant_id, recipient_type: "applicant", sender_type: "admin",
+        notification_type: "franchise_expiry_blast",
+        title: "⚠️ Franchise Expiry Notice",
+        message: `Your franchise (${f.franchise_number}) will expire on ${fmtDate(f.expiration_date)} — ${days} day${days !== 1 ? "s" : ""} remaining. Please renew at the Municipal Hall before the deadline to avoid penalty.`,
+        is_read: false, dedup_key: key, franchise_id: f.id,
+      })
+      sent++
     }
-    await fetchData()
+    setBlasting(p => ({ ...p, expiry: false }))
+    setBlastResult(p => ({ ...p, expiry: `✅ Sent to ${sent} franchise holder${sent !== 1 ? "s" : ""} expiring within 30 days.` }))
   }
 
- const statusStyles = {
-  active: {
-    badge: "bg-green-100 text-green-700 border border-green-300",
-    dot: "bg-green-500",
-  },
-  expired: {
-    badge: "bg-red-100 text-red-700 border border-red-300",
-    dot: "bg-red-500",
-  },
-  available: {
-    badge: "bg-gray-100 text-gray-600 border border-gray-300",
-    dot: "bg-gray-400",
-  },
-}
+  const blastMtopJanuary = async () => {
+    setBlasting(p => ({ ...p, mtop: true }))
+    setBlastResult(p => ({ ...p, mtop: null }))
+    const targets = franchises.filter(f => f.applicant_id && f.status === "active")
+    let sent = 0
+    const year = new Date().getFullYear()
+    for (const f of targets) {
+      const key = dedupKey("blast_mtop_jan", f.id, `${year}-01`)
+      if (await notifAlreadySent(key)) continue
+      await supabase.from("notifications").insert({
+        recipient_id: f.applicant_id, recipient_type: "applicant", sender_type: "admin",
+        notification_type: "mtop_sticker_annual_blast",
+        title: "📋 Annual MTOP Sticker Payment – January Reminder",
+        message: `This is a reminder to all franchise holders: January is the annual payment period for your Motorized Tricycle Operator's Permit (MTOP) sticker. Please visit the Municipal Hall, San Jose, Occidental Mindoro to process your sticker update for franchise ${f.franchise_number}.`,
+        is_read: false, dedup_key: key, franchise_id: f.id,
+      })
+      sent++
+    }
+    setBlasting(p => ({ ...p, mtop: false }))
+    setBlastResult(p => ({ ...p, mtop: `✅ Sent to ${sent} active franchise holder${sent !== 1 ? "s" : ""}.` }))
+  }
 
-const stats = [
-  {
-    label: "Total Franchise Records",
-    value: franchises.length,
-    icon: "🏢",
-    color: "bg-orange-50 border border-orange-200",
-    textColor: "text-orange-600",
-  },
-  {
-    label: "Active Franchises",
-    value: franchises.filter(f => f.status === "active").length,
-    icon: "✅",
-    color: "bg-green-50 border border-green-200",
-    textColor: "text-green-600",
-  },
-  {
-    label: "Expired Franchises",
-    value: franchises.filter(f => f.status === "expired").length,
-    icon: "⛔",
-    color: "bg-red-50 border border-red-200",
-    textColor: "text-red-600",
-  },
-  {
-    label: "Available Franchises",
-    value: franchises.filter(f => f.status === "available").length,
-    icon: "🟡",
-    color: "bg-yellow-50 border border-yellow-200",
-    textColor: "text-yellow-600",
-  },
-]
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6 px-1">
 
-        {/* HEADER */}
-        <div className="rounded p-6 border bg-orange-100">
-          <h1 className="text-xl font-bold">DASHBOARD</h1>
-          <p className="text-sm mt-1">Welcome back, {profile?.full_name}.</p>
+        {/* ── HEADER ── */}
+       <div className="rounded-xl px-6 py-5 bg-orange-50 border border-orange-200 shadow-sm">
+          <h1 className="text-2xl font-bold text-black tracking-tight">Admin Dashboard</h1>
+          <p className="text-xs font-semibold text-black-100 uppercase tracking-widest mb-0.5">Municipal Franchise Management System</p>
+          <p className="text-sm text-black-100 mt-0.5">Welcome back, <span className="font-semibold">{profile?.full_name ?? "Administrator"}</span>.</p>
         </div>
 
-        {/* STATS */}
+        {/* ── STAT CARDS ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map((s, i) => (
-            <div key={i} className={`p-4 rounded-lg shadow-sm ${s.color}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xl">{s.icon}</span>
-                <span className={`text-3xl font-bold ${s.textColor}`}>{s.value}</span>
+          {[
+            { label: "Total Franchise Records",    value: total,     icon: "🏢", ring: "ring-orange-300",  num: "text-orange-600",  bg: "bg-orange-50"  },
+            { label: "Active Franchises",           value: active,    icon: "✅", ring: "ring-emerald-300", num: "text-emerald-600", bg: "bg-emerald-50" },
+            { label: "Expired Franchises",          value: expired,   icon: "⛔", ring: "ring-red-300",     num: "text-red-600",     bg: "bg-red-50"     },
+            { label: "Available / Recycled Slots",  value: available, icon: "🔄", ring: "ring-blue-300",   num: "text-blue-600",    bg: "bg-blue-50"    },
+          ].map((s, i) => (
+            <div key={i} className={`${s.bg} ring-1 ${s.ring} rounded-xl p-5 shadow-sm flex flex-col gap-2`}>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl">{s.icon}</span>
+                <span className={`text-4xl font-black ${s.num} tabular-nums`}>{s.value}</span>
               </div>
-              <p className="text-xs font-medium text-gray-600 mt-1">{s.label}</p>
+              <p className="text-xs font-semibold text-gray-500 leading-tight">{s.label}</p>
             </div>
           ))}
         </div>
 
-        {/* QUICK ACTIONS */}
-        <div className="grid md:grid-cols-2 gap-5">
+        {/* ── SLOT PROGRESS BAR ── */}
+        <div className="bg-white ring-1 ring-gray-200 rounded-xl px-5 py-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Franchise Slot Usage</span>
+            <span className="text-xs text-gray-400">{active} used · <span className="text-blue-600 font-semibold">{freeSlots} free</span> · {TOTAL_SLOTS} total</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div
+              className="h-3 rounded-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all duration-700"
+              style={{ width: `${Math.min((active / TOTAL_SLOTS) * 100, 100).toFixed(2)}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5 text-right">{((active / TOTAL_SLOTS) * 100).toFixed(1)}% occupied</p>
+        </div>
+
+        {/* ── QUICK ACTIONS ── */}
+        <div className="grid md:grid-cols-2 gap-4">
           <button
             onClick={() => navigate("/admin/applications")}
-            className="p-5 bg-green-100 hover:bg-green-200 border border-green-300 rounded-md font-bold text-black shadow-sm transition">
-            APPLICATIONS
+            className="group relative overflow-hidden p-5 bg-emerald-500 hover:bg-emerald-600 rounded-xl font-bold text-white text-base shadow-md transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 text-left">
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl opacity-20 group-hover:opacity-30 transition">📝</span>
+            <span className="relative">APPLICATIONS</span>
+            <p className="text-xs font-normal text-emerald-100 mt-0.5 relative">View and manage all franchise applications</p>
           </button>
           <button
             onClick={() => navigate("/admin/appointments")}
-            className="p-5 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-md font-bold text-black shadow-sm transition">
-            APPOINTMENTS
+            className="group relative overflow-hidden p-5 bg-blue-500 hover:bg-blue-600 rounded-xl font-bold text-white text-base shadow-md transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 text-left">
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl opacity-20 group-hover:opacity-30 transition">📅</span>
+            <span className="relative">APPOINTMENTS</span>
+            <p className="text-xs font-normal text-blue-100 mt-0.5 relative">Schedule and track applicant appointments</p>
           </button>
         </div>
 
-        {/* FRANCHISE MANAGEMENT */}
-        <div className="border rounded-xl bg-white p-5 shadow-sm flex flex-col max-h-[600px]">
-
-          <div className="flex items-center gap-2 border-b pb-3">
-            <span className="text-lg">🏢</span>
-            <h2 className="font-bold text-base text-gray-800">
-              Tricycle Franchise Management
-            </h2>
+        {/* ── BULK NOTIFICATIONS ── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-base">📣</span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Bulk Notifications</h2>
+            <span className="text-xs text-gray-400 italic">(SMS / Email / In-App — dispatched from applicant file)</span>
           </div>
+          <div className="grid md:grid-cols-3 gap-4">
 
-          {/* FORM */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-
-              {/* Franchise Number */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Franchise Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  placeholder="e.g. TRIC-001"
-                  value={form.franchise_number}
-                  onChange={e => setForm({ ...form, franchise_number: e.target.value.toUpperCase() })}
-                  className="border border-gray-300 p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                  required
-                />
-              </div>
-
-              {/* Plate Number */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Plate Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  placeholder="e.g. ABC-1234"
-                  value={form.plate_number}
-                  onChange={e => setForm({ ...form, plate_number: e.target.value.toUpperCase() })}
-                  className="border border-gray-300 p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                  required
-                />
-                <p className="text-xs text-gray-400">Format: ABC-1234 or AB-123</p>
-              </div>
-
-              {/* Owner Name */}
-              <div className="flex flex-col gap-1 md:col-span-2">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Owner Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  placeholder="e.g. Juan Dela Cruz"
-                  value={form.owner_name}
-                  onChange={e => setForm({ ...form, owner_name: e.target.value })}
-                  className="border border-gray-300 p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                  required
-                />
-              </div>
-
-              {/* Date Issued */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Date Issued <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={form.date_issued}
-                  onChange={e => setForm({ ...form, date_issued: e.target.value })}
-                  className="border border-gray-300 p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                  required
-                />
-              </div>
-
-              {/* Expiration Date */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Expiration Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={form.expiration_date}
-                  min={form.date_issued || undefined}
-                  onChange={e => setForm({ ...form, expiration_date: e.target.value })}
-                  className="border border-gray-300 p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                  required
-                />
-              </div>
-
-              {/* Status */}
-              <div className="flex flex-col gap-1 md:col-span-2">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Status
-                </label>
-                <select
-                  value={form.status}
-                  onChange={e => setForm({ ...form, status: e.target.value })}
-                  className="border border-gray-300 p-2 rounded text-sm"
-                >
-                  <option value="available">🟡 Available</option>
-                  <option value="active">✅ Active</option>
-                  <option value="expired">⛔ Expired</option>
-                </select>
-              </div>
-
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold py-2 rounded text-sm">
-                {editingId ? "✏️ Update Franchise" : "➕ Add Franchise"}
-              </button>
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={() => { setEditingId(null); setForm(emptyForm) }}
-                  className="px-4 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded text-sm">
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
-
-          {/* LIST */}
-          <div className="space-y-2 overflow-y-auto pr-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Franchise Records ({franchises.length})
-            </p>
-
-            {franchises.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6 border rounded-lg">
-                No franchise records yet. Add one above.
-              </p>
-            )}
-
-            {franchises.map(f => {
-              const style = statusStyles[f.status] || statusStyles.available
-              return (
-                <div
-                  key={f.id}
-                  className="flex justify-between items-center border border-gray-200 p-3 rounded-lg bg-gray-50 hover:bg-white transition"
-                >
-                  <div className="space-y-0.5">
-                    <p className="font-semibold text-sm text-gray-800">
-                      {f.franchise_number}
-                      <span className="ml-2 text-xs font-normal text-gray-400">
-                        🚗 {f.plate_number || "No plate"}
-                      </span>
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      👤 {f.owner_name || "No owner assigned"}
-                    </p>
-                    {(f.date_issued || f.expiration_date) && (
-                      <p className="text-xs text-gray-400">
-                        📅 {f.date_issued || "—"} → {f.expiration_date || "—"}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 items-center">
-                    <span className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full ${style.badge}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`}></span>
-                      {f.status.charAt(0).toUpperCase() + f.status.slice(1)}
-                    </span>
-                    <button
-                      onClick={() => handleEdit(f)}
-                      className="px-3 py-1.5 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white rounded">
-                      ✏️ Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(f.id)}
-                      className="px-3 py-1.5 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white rounded">
-                      🗑️ Delete
-                    </button>
-                  </div>
+            {/* Card 1 — Expiring ≤30 days */}
+            <div className={`rounded-xl border-2 p-5 shadow-sm flex flex-col gap-3 transition-all ${expiringSoonList.length > 0 ? "border-orange-400 bg-orange-50" : "border-gray-200 bg-gray-50 opacity-80"}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-extrabold text-sm text-gray-800">Expiry Reminder Blast</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-snug">Send to all franchise holders with <span className="font-semibold text-orange-600">≤30 days</span> left. Message includes days left and exact expiration date.</p>
                 </div>
-              )
-            })}
-          </div>
+                <span className={`text-3xl font-black tabular-nums ml-3 ${expiringSoonList.length > 0 ? "text-orange-500" : "text-gray-300"}`}>{expiringSoonList.length}</span>
+              </div>
+              <div className="bg-white/70 border border-orange-200 rounded-lg px-3 py-2 text-xs text-gray-500 italic">
+                Notification includes: franchise number, expiry date, days remaining, renewal instruction.
+              </div>
+              {blastResult.expiry && <p className="text-xs text-emerald-600 font-semibold">{blastResult.expiry}</p>}
+              <button
+                onClick={blastExpiringSoon}
+                disabled={blasting.expiry || expiringSoonList.length === 0}
+                className={`mt-auto w-full py-2.5 rounded-lg text-sm font-bold transition ${expiringSoonList.length > 0 && !blasting.expiry ? "bg-orange-500 hover:bg-orange-600 text-white shadow-sm" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+                {blasting.expiry ? "⏳ Sending…" : `📤 Send to ${expiringSoonList.length} holders`}
+              </button>
+            </div>
 
+            {/* Card 2 — Annual MTOP January */}
+            <div className={`rounded-xl border-2 p-5 shadow-sm flex flex-col gap-3 transition-all ${isJanuary() ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-gray-50"}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-extrabold text-sm text-gray-800">Annual MTOP Sticker – January</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-snug">Remind all active holders to pay for their Motorized Tricycle Operator's Permit sticker. Sent annually every January 1–31.</p>
+                </div>
+                <span className={`text-3xl font-black tabular-nums ml-3 ${isJanuary() ? "text-blue-500" : "text-gray-300"}`}>{active}</span>
+              </div>
+              <div className={`rounded-lg px-3 py-2 text-xs italic border ${isJanuary() ? "bg-blue-100/60 border-blue-200 text-blue-700" : "bg-white/70 border-gray-200 text-gray-400"}`}>
+                {isJanuary() ? "✅ January active — blast is enabled." : "⚠️ Not January — manual override available."}
+              </div>
+              {blastResult.mtop && <p className="text-xs text-emerald-600 font-semibold">{blastResult.mtop}</p>}
+              <button
+                onClick={blastMtopJanuary}
+                disabled={blasting.mtop || active === 0}
+                className={`mt-auto w-full py-2.5 rounded-lg text-sm font-bold transition ${active > 0 && !blasting.mtop ? (isJanuary() ? "bg-blue-500 hover:bg-blue-600 text-white shadow-sm" : "bg-gray-700 hover:bg-gray-800 text-white shadow-sm") : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+                {blasting.mtop ? "⏳ Sending…" : `📤 Send MTOP Reminder (${active})`}
+              </button>
+            </div>
+
+            {/* Card 3 — Auto-expired (read-only) */}
+            <div className="rounded-xl border-2 border-red-200 bg-red-50 p-5 shadow-sm flex flex-col gap-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-extrabold text-sm text-gray-800">Auto-Expired Notifications</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-snug">Automatically dispatched when a franchise reaches its expiration date. No manual action required.</p>
+                </div>
+                <span className="text-3xl font-black tabular-nums ml-3 text-red-500">{expiredList.length}</span>
+              </div>
+              <div className="bg-red-100 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-600">
+                🤖 System auto-notifies applicants on expiry. Slot is recycled automatically after <strong>30 days</strong> of inactivity.
+              </div>
+              {expiredList.length > 0 ? (
+                <ul className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                  {expiredList.slice(0, 6).map(f => (
+                    <li key={f.id} className="text-xs text-red-500 flex items-center gap-1.5">
+                      <span>⛔</span>
+                      <span><span className="font-bold">{f.franchise_number}</span> · {f.owner_name || "—"} · exp. {f.expiration_date}</span>
+                    </li>
+                  ))}
+                  {expiredList.length > 6 && <li className="text-xs text-red-300 italic">+{expiredList.length - 6} more…</li>}
+                </ul>
+              ) : (
+                <p className="text-xs text-red-300 italic">No expired franchises at this time.</p>
+              )}
+              <div className="mt-auto w-full py-2 rounded-lg text-xs font-semibold text-center bg-red-100 border border-red-200 text-red-500 cursor-default select-none">
+                🔒 Automated — no action needed
+              </div>
+            </div>
+
+          </div>
         </div>
+
       </div>
     </AdminLayout>
   )

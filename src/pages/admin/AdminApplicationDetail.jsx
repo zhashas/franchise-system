@@ -132,7 +132,7 @@ const DocCard = ({ label, url }) => {
   )
 }
 
-// ─── NOTIFICATION TEMPLATES (must match DB check constraint values) ───────────
+// ─── NOTIFICATION TEMPLATES ───────────────────────────────────────────────────
 const STATUS_NOTIF = {
   under_review: {
     title:   "Application Under Review 🔍",
@@ -141,7 +141,7 @@ const STATUS_NOTIF = {
   },
   approved: {
     title:   "Application Approved ✅",
-    message: "Congratulations! Your franchise application has been approved. Please wait for further instructions.",
+    message: "Congratulations! Your franchise application has been approved. Your franchise is now valid for 3 years.",
     type:    "status_approved",
   },
   rejected: {
@@ -155,6 +155,16 @@ const STATUS_NOTIF = {
     type:    "status_for_release",
   },
 }
+
+// ─── HELPER: add years to a date string (YYYY-MM-DD) ─────────────────────────
+const addYears = (dateStr, years) => {
+  const d = new Date(dateStr)
+  d.setFullYear(d.getFullYear() + years)
+  return d.toISOString().split("T")[0]
+}
+
+// ─── HELPER: today as YYYY-MM-DD ──────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().split("T")[0]
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function AdminApplicationDetail() {
@@ -170,6 +180,7 @@ export default function AdminApplicationDetail() {
   const [showRemarkBox,  setShowRemarkBox]  = useState(false)
   const [pendingStatus,  setPendingStatus]  = useState("")
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchApplication() }, [id])
 
   const fetchApplication = async () => {
@@ -203,6 +214,61 @@ export default function AdminApplicationDetail() {
     setShowRemarkBox(true)
   }
 
+  // ─── AUTO-SYNC FRANCHISE RECORD ────────────────────────────────────────────
+  // Called whenever an application is approved.
+  // • New registration  → INSERT a new franchise row (status = "active")
+  // • Renewal           → UPDATE the existing franchise row matched by
+  //                       franchise_number; reset dates for 3-year validity
+  const syncFranchiseRecord = async (application) => {
+    const d             = application.details  || {}
+    const isRenewal     = application.type === "renewal"
+    const approvedToday = todayStr()
+    const newExpiry     = addYears(approvedToday, 3)
+
+    const franchisePayload = {
+      owner_name:       d.franchise_owner || application.profiles?.full_name || "",
+      plate_number:     (d.plate_no || "").toUpperCase(),
+      date_issued:      approvedToday,
+      expiration_date:  newExpiry,
+      status:           "active",
+      // Store applicant_id so the scheduler can notify them later
+      applicant_id:     application.applicant_id,
+    }
+
+    if (isRenewal && d.franchise_number) {
+      // ── RENEWAL: update existing record by franchise_number ────────────────
+      const { error: updateErr } = await supabase
+        .from("franchises")
+        .update(franchisePayload)
+        .eq("franchise_number", d.franchise_number.toUpperCase())
+
+      if (updateErr) {
+        console.warn("Franchise renewal update warning:", updateErr.message)
+        // Fallback: insert if no matching record found
+        const { error: insertErr } = await supabase
+          .from("franchises")
+          .insert([{ ...franchisePayload, franchise_number: d.franchise_number.toUpperCase() }])
+        if (insertErr) console.error("Franchise insert fallback error:", insertErr.message)
+      }
+    } else {
+      // ── NEW REGISTRATION: insert a new franchise row ───────────────────────
+      // Generate a franchise number from control number or a timestamp fallback
+      const franchiseNumber = d.franchise_number
+        || d.control_number
+        || `TRIC-${Date.now().toString().slice(-6)}`
+
+      // Upsert so re-approving the same app is idempotent
+      const { error: insertErr } = await supabase
+        .from("franchises")
+        .upsert(
+          [{ ...franchisePayload, franchise_number: franchiseNumber.toUpperCase() }],
+          { onConflict: "franchise_number" }
+        )
+      if (insertErr) console.error("Franchise upsert error:", insertErr.message)
+    }
+  }
+
+  // ─── CONFIRM STATUS CHANGE ─────────────────────────────────────────────────
   const confirmStatusChange = async () => {
     if (!pendingStatus) return
     setStatusUpdating(true)
@@ -216,12 +282,27 @@ export default function AdminApplicationDetail() {
 
       if (updateError) throw updateError
 
-      // 2 ── Insert notification row for the applicant
+      // 2 ── If approved: auto-create / update franchise record
+      if (pendingStatus === "approved") {
+        await syncFranchiseRecord(app)
+      }
+
+      // 3 ── Insert notification row for the applicant
       const template = STATUS_NOTIF[pendingStatus]
       if (template && app?.applicant_id) {
         const extraNote = adminRemarks.trim()
           ? ` Admin note: "${adminRemarks.trim()}"`
           : ""
+
+        // For approval, enrich the message with the 3-year expiry date
+        let finalMessage = template.message + extraNote
+        if (pendingStatus === "approved") {
+          const expiry = addYears(todayStr(), 3)
+          finalMessage =
+            `Congratulations! Your franchise application has been approved. ` +
+            `Your franchise is now active and valid until ${expiry}.` +
+            (extraNote || "")
+        }
 
         const { error: notifError } = await supabase
           .from("notifications")
@@ -232,19 +313,24 @@ export default function AdminApplicationDetail() {
             application_id:    id,
             notification_type: template.type,
             title:             template.title,
-            message:           template.message + extraNote,
+            message:           finalMessage,
             is_read:           false,
           })
 
         if (notifError) console.warn("Notification insert warning:", notifError.message)
       }
 
-      // 3 ── Update local state
+      // 4 ── Update local state
       setApp(prev => ({ ...prev, status: pendingStatus, admin_remarks: adminRemarks }))
       setShowRemarkBox(false)
       setPendingStatus("")
+
+      const extraInfo = pendingStatus === "approved"
+        ? ` Franchise record has been automatically created/updated with a 3-year validity (expires ${addYears(todayStr(), 3)}).`
+        : ""
+
       setSuccessMsg(
-        `✅ Status updated to "${pendingStatus.replace(/_/g, " ")}" and applicant has been notified.`
+        `✅ Status updated to "${pendingStatus.replace(/_/g, " ")}" and applicant has been notified.${extraInfo}`
       )
     } catch (err) {
       setError("Status update failed: " + err.message)
@@ -450,6 +536,17 @@ export default function AdminApplicationDetail() {
                 {error}
               </div>
             )}
+
+            {/* ── Approval info banner ── */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5 text-xs text-blue-700">
+              <p className="font-bold mb-1">ℹ️ Approval Auto-Actions</p>
+              <ul className="list-disc list-inside space-y-0.5 text-blue-600">
+                <li>Approving will <strong>automatically create or update</strong> the franchise record in the dashboard.</li>
+                <li>Franchise validity is set to <strong>3 years</strong> from today's approval date.</li>
+                <li>For renewals, the existing record (matched by franchise number) will be <strong>reset</strong> to a new 3-year term.</li>
+                <li>The applicant will receive an <strong>approval notification</strong> with their new expiry date.</li>
+              </ul>
+            </div>
 
             {showRemarkBox && (
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
