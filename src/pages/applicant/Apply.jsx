@@ -437,7 +437,7 @@ export default function Apply() {
     setError("")
     setFieldErrors({})
     setInlineErrors({})
-  }, [appType, emptyForm, emptyFiles]) // eslint-disable-line
+  }, [appType, emptyForm, emptyFiles])
 
   const checkApplicantEligibility = async () => {
     setCheckingStatus(true); setBlockReason("")
