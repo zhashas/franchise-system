@@ -3,8 +3,104 @@ import { useNavigate, useLocation } from "react-router-dom"
 import { supabase } from "../lib/supabaseClient"
 import {
   Home, ClipboardList, Calendar, Bell, Settings, LogOut,
-  ChevronLeft, ChevronRight, FileText
+  ChevronLeft, ChevronRight, FileText, X, CheckCircle, Clock, MapPin
 } from "lucide-react"
+
+// ─── Appointment Detail Modal ─────────────────────────────────────────────────
+function AppointmentModal({ notif, onClose, onNavigate }) {
+  if (!notif) return null
+  const isAppointment =
+    (notif.notification_type || "").includes("appointment") ||
+    (notif.title || "").toLowerCase().includes("appointment")
+
+  const formatDate = (d) =>
+    new Date(d).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })
+  const formatTime = (d) =>
+    new Date(d).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true })
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-blue-500">
+        {/* Header */}
+        <div className="bg-blue-50 px-6 py-5 flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-3xl">📅</span>
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-extrabold text-blue-800">
+              {isAppointment ? "Appointment Scheduled" : notif.title}
+            </h2>
+            <p className="text-xs text-blue-500 mt-0.5">From: Admin · Business Permits Office</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl font-bold leading-none">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {/* Message */}
+          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Message</p>
+            <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">{notif.message}</p>
+          </div>
+
+          {/* Info Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Clock size={12} className="text-blue-500" />
+                <p className="text-xs font-semibold text-blue-600">Date & Time</p>
+              </div>
+              <p className="text-xs font-bold text-blue-800">
+                {formatDate(notif.created_at)}
+              </p>
+              <p className="text-xs text-blue-600">{formatTime(notif.created_at)}</p>
+            </div>
+            <div className="bg-green-50 rounded-xl p-3 border border-green-100">
+              <div className="flex items-center gap-1.5 mb-1">
+                <CheckCircle size={12} className="text-green-500" />
+                <p className="text-xs font-semibold text-green-600">Status</p>
+              </div>
+              <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                Scheduled ✓
+              </span>
+            </div>
+          </div>
+
+          {/* Location reminder */}
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-xs text-orange-800 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold mb-1">
+              <MapPin size={12} />
+              <span>Appointment Reminders:</span>
+            </div>
+            <p>• Visit the Municipal Hall – Business Permits Office</p>
+            <p>• Bring your valid ID and original documents</p>
+            <p>• Arrive at least 15 minutes before your scheduled time</p>
+            <p>• Contact the office if you need to reschedule</p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={onNavigate}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+          >
+            View All Appointments →
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function ApplicantLayout({ children, backPath, backLabel }) {
   const [collapsed, setCollapsed] = useState(() => {
@@ -12,18 +108,22 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
     catch { return false }
   })
   const [showLogoutModal, setShowLogoutModal] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [notifications, setNotifications] = useState([])
-  const [showDropdown, setShowDropdown] = useState(false)
+  const [notifications,   setNotifications]   = useState([])
+  const [showDropdown,    setShowDropdown]     = useState(false)
+  // Appointment modal state
+  const [appointmentNotif, setAppointmentNotif] = useState(null)
+  const [navUnread, setNavUnread] = useState(
+    () => parseInt(localStorage.getItem("notif_unread") || "0", 10)
+  )
   const dropdownRef = useRef()
-  const navigate = useNavigate()
-  const location = useLocation()
+  const navigate    = useNavigate()
+  const location    = useLocation()
 
   useEffect(() => {
     localStorage.setItem("applicant_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
-  // ── Load notifications (recipient_id = user.id, recipient_type = applicant) ──
+  // ── Load notifications — layout badge only (no realtime here to avoid dup channels) ──
   useEffect(() => {
     let channel
 
@@ -42,32 +142,53 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
 
       const all = data || []
       setNotifications(all.slice(0, 8))
-      setUnreadCount(all.length)
+      const count = all.length
+      setNavUnread(count)
+      localStorage.setItem("notif_unread", String(count))
     }
 
-    const setupRealtime = async () => {
+    const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-
       await loadNotifications()
 
+      // ✅ Unique channel name: layout-bell-{userId} — won't conflict with Notifications page
       channel = supabase
-        .channel(`applicant-layout-notif-${user.id}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => loadNotifications())
+        .channel(`layout-bell-${user.id}`)
+        .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "notifications",
+            filter: `recipient_id=eq.${user.id}` },
+          () => loadNotifications()
+        )
+        .on("postgres_changes",
+          { event: "UPDATE", schema: "public", table: "notifications",
+            filter: `recipient_id=eq.${user.id}` },
+          () => loadNotifications()
+        )
         .subscribe()
     }
 
-    setupRealtime()
+    setup()
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
 
-  // Click outside to close dropdown
+  // Listen for broadcast from Notifications page (keeps badge in sync)
   useEffect(() => {
-    const handleClickOutside = (e) => {
+    const h = (e) => {
+      setNavUnread(e.detail)
+      localStorage.setItem("notif_unread", String(e.detail))
+    }
+    window.addEventListener("notif_unread_update", h)
+    return () => window.removeEventListener("notif_unread_update", h)
+  }, [])
+
+  // Click outside dropdown
+  useEffect(() => {
+    const h = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false)
     }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
   }, [])
 
   const handleLogout = async () => {
@@ -81,57 +202,74 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
     await supabase.from("notifications").update({ is_read: true })
       .eq("recipient_id", user.id).eq("recipient_type", "applicant").eq("is_read", false)
     setNotifications([])
-    setUnreadCount(0)
+    setNavUnread(0)
+    localStorage.setItem("notif_unread", "0")
+    window.dispatchEvent(new CustomEvent("notif_unread_update", { detail: 0 }))
   }
 
   const handleNotifClick = async (notif) => {
+    // Mark as read
     await supabase.from("notifications").update({ is_read: true }).eq("id", notif.id)
     setNotifications(prev => prev.filter(n => n.id !== notif.id))
-    setUnreadCount(prev => Math.max(prev - 1, 0))
+    const newCount = Math.max(navUnread - 1, 0)
+    setNavUnread(newCount)
+    localStorage.setItem("notif_unread", String(newCount))
+    window.dispatchEvent(new CustomEvent("notif_unread_update", { detail: newCount }))
     setShowDropdown(false)
 
-    const type = notif.notification_type || ""
+    const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    if (type.includes("appointment") || title.includes("appointment")) navigate("/applicant/appointments")
-    else navigate("/applicant/notifications")
+
+    // ✅ Appointment: show modal card instead of navigating
+    if (type.includes("appointment") || title.includes("appointment")) {
+      setAppointmentNotif(notif)
+      return
+    }
+    navigate("/applicant/notifications")
   }
 
   const getNotifDot = (notif) => {
-    const type = notif.notification_type || ""
+    const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    if (title.includes("approved")) return "bg-green-500"
-    if (title.includes("rejected")) return "bg-red-500"
-    if (title.includes("review")) return "bg-blue-500"
+    if (title.includes("approved"))    return "bg-green-500"
+    if (title.includes("rejected"))    return "bg-red-500"
+    if (title.includes("review"))      return "bg-blue-500"
     if (title.includes("appointment")) return "bg-blue-400"
     if (type.includes("expiry") || title.includes("expir")) return "bg-orange-500"
-    if (type.includes("mtop") || title.includes("mtop")) return "bg-blue-300"
-    if (type.includes("recycled")) return "bg-purple-400"
+    if (type.includes("mtop")   || title.includes("mtop"))  return "bg-sky-400"
     return "bg-gray-400"
   }
 
   const formatTime = (date) => {
     const diffMin = Math.floor((new Date() - new Date(date)) / 60000)
-    if (diffMin < 1) return "Just now"
-    if (diffMin < 60) return `${diffMin}m ago`
+    if (diffMin < 1)    return "Just now"
+    if (diffMin < 60)   return `${diffMin}m ago`
     if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`
     return `${Math.floor(diffMin / 1440)}d ago`
   }
 
   const menuItems = [
-    { path: "/applicant/dashboard", icon: Home, label: "Home" },
-    { path: "/applicant/apply", icon: ClipboardList, label: "My Applications" },
-    { path: "/applicant/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/applicant/notifications", icon: Bell, label: "Notifications", badge: true },
-    { path: "/applicant/settings", icon: Settings, label: "Settings" },
+    { path: "/applicant/dashboard",      icon: Home,         label: "Home" },
+    { path: "/applicant/apply",          icon: ClipboardList, label: "My Applications" },
+    { path: "/applicant/appointments",   icon: Calendar,     label: "Appointments" },
+    { path: "/applicant/notifications",  icon: Bell,         label: "Notifications", badge: true },
+    { path: "/applicant/settings",       icon: Settings,     label: "Settings" },
   ]
 
   return (
     <div className="flex h-screen overflow-hidden">
 
+      {/* ── Appointment Modal ── */}
+      {appointmentNotif && (
+        <AppointmentModal
+          notif={appointmentNotif}
+          onClose={() => setAppointmentNotif(null)}
+          onNavigate={() => { setAppointmentNotif(null); navigate("/applicant/appointments") }}
+        />
+      )}
+
       {/* ── SIDEBAR ── */}
       <div className={`flex-shrink-0 bg-gradient-to-b from-orange-600 to-orange-500 text-white flex flex-col shadow-xl transition-all duration-300 h-screen sticky top-0 ${collapsed ? "w-16" : "w-56"}`}>
-
-        {/* Logo */}
         <div className="p-4 border-b border-orange-400 flex items-center gap-2">
           <div className="bg-white p-1.5 rounded-full flex-shrink-0">
             <FileText className="w-5 h-5 text-orange-500" />
@@ -144,33 +282,24 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
           )}
         </div>
 
-        {/* Toggle */}
-        <button
-          onClick={() => setCollapsed(prev => !prev)}
-          className="mx-auto mt-2 text-orange-200 hover:text-white transition"
-        >
+        <button onClick={() => setCollapsed(p => !p)} className="mx-auto mt-2 text-orange-200 hover:text-white transition">
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
 
-        {/* Menu */}
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {menuItems.map((item) => {
             const Icon = item.icon
             const isActive = location.pathname === item.path
             return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
+              <button key={item.path} onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition relative ${
                   isActive ? "bg-white text-orange-600 shadow" : "text-white hover:bg-orange-400"
-                }`}
-              >
+                }`}>
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
-                {/* Badge on Notifications */}
-                {item.badge && unreadCount > 0 && (
+                {item.badge && navUnread > 0 && (
                   <span className={`${collapsed ? "absolute top-0.5 right-0.5" : ""} bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none`}>
-                    {unreadCount > 99 ? "99+" : unreadCount}
+                    {navUnread > 99 ? "99+" : navUnread}
                   </span>
                 )}
               </button>
@@ -178,12 +307,9 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
           })}
         </nav>
 
-        {/* Logout */}
         <div className="p-3 border-t border-orange-400">
-          <button
-            onClick={() => setShowLogoutModal(true)}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-white hover:bg-orange-400 transition"
-          >
+          <button onClick={() => setShowLogoutModal(true)}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-white hover:bg-orange-400 transition">
             <LogOut className="w-5 h-5 flex-shrink-0" />
             {!collapsed && <span>Logout</span>}
           </button>
@@ -198,13 +324,12 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
           <p className="text-sm text-gray-500">Municipality of San Jose, Occidental Mindoro</p>
 
           <div className="flex items-center gap-4 relative" ref={dropdownRef}>
-
-            {/* Bell Button */}
-            <button onClick={() => setShowDropdown(prev => !prev)} className="relative p-1">
+            {/* Bell */}
+            <button onClick={() => setShowDropdown(p => !p)} className="relative p-1">
               <Bell className="w-5 h-5 text-gray-600" />
-              {unreadCount > 0 && (
+              {navUnread > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none">
-                  {unreadCount > 99 ? "99+" : unreadCount}
+                  {navUnread > 99 ? "99+" : navUnread}
                 </span>
               )}
             </button>
@@ -215,9 +340,9 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
                 <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
                   <div>
                     <p className="text-sm font-bold text-gray-800">🔔 Notifications</p>
-                    <p className="text-xs text-gray-400">{unreadCount} unread</p>
+                    <p className="text-xs text-gray-400">{navUnread} unread</p>
                   </div>
-                  {unreadCount > 0 && (
+                  {navUnread > 0 && (
                     <button onClick={markAllAsRead} className="text-xs text-orange-500 hover:underline font-medium">
                       Mark all read
                     </button>
@@ -231,25 +356,32 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
                   </div>
                 ) : (
                   <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
-                    {notifications.map((notif) => (
-                      <div key={notif.id} onClick={() => handleNotifClick(notif)}
-                        className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition">
-                        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getNotifDot(notif)}`} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 truncate">{notif.title}</p>
-                          <p className="text-xs text-gray-500 truncate mt-0.5">{notif.message}</p>
-                          <p className="text-xs text-gray-400 mt-1">{formatTime(notif.created_at)}</p>
+                    {notifications.map((notif) => {
+                      const isAppt = (notif.notification_type || "").includes("appointment") ||
+                        (notif.title || "").toLowerCase().includes("appointment")
+                      return (
+                        <div key={notif.id} onClick={() => handleNotifClick(notif)}
+                          className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition">
+                          <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getNotifDot(notif)}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-semibold text-gray-800 truncate">{notif.title}</p>
+                              {isAppt && (
+                                <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">📅 Tap to view</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 truncate mt-0.5">{notif.message}</p>
+                            <p className="text-xs text-gray-400 mt-1">{formatTime(notif.created_at)}</p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
 
                 <div className="border-t">
-                  <button
-                    onClick={() => { setShowDropdown(false); navigate("/applicant/notifications") }}
-                    className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition"
-                  >
+                  <button onClick={() => { setShowDropdown(false); navigate("/applicant/notifications") }}
+                    className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition">
                     View All Notifications →
                   </button>
                 </div>
@@ -269,7 +401,6 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
           </div>
         </div>
 
-        {/* Page Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {children}
         </div>
@@ -285,12 +416,8 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
               <p className="text-sm text-gray-500 mt-1">Are you sure you want to logout?</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={handleLogout} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition">
-                Yes, Logout
-              </button>
-              <button onClick={() => setShowLogoutModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition">
-                Cancel
-              </button>
+              <button onClick={handleLogout} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-semibold text-sm transition">Yes, Logout</button>
+              <button onClick={() => setShowLogoutModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold text-sm transition">Cancel</button>
             </div>
           </div>
         </div>
