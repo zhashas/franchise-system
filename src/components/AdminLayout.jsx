@@ -170,11 +170,13 @@ export default function AdminLayout({ children, backPath, backLabel }) {
   }, [collapsed])
 
   useEffect(() => {
-    let channel
+    let cancelled = false
 
-    const loadNotifications = async () => {
+    // ✅ NO realtime channel here — AdminNotifications.jsx owns the one channel.
+    //    The bell badge stays live via "adminUnreadCount" broadcast events.
+    const loadOnce = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user || cancelled) return
 
       const { data } = await supabase
         .from("notifications")
@@ -185,41 +187,25 @@ export default function AdminLayout({ children, backPath, backLabel }) {
         .order("created_at", { ascending: false })
         .limit(50)
 
+      if (cancelled) return
       const all    = data || []
       const unread = all.filter(n => !n.is_read)
       setNotifications(unread.slice(0, 10))
       setUnreadCount(unread.length)
     }
 
-    const setup = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      await loadNotifications()
-
-      // ✅ Unique channel: "admin-layout-{userId}"
-      channel = supabase
-        .channel(`admin-layout-${user.id}`)
-        .on("postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications",
-            filter: `recipient_type=eq.admin` },
-          () => loadNotifications()
-        )
-        .on("postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications",
-            filter: `recipient_type=eq.admin` },
-          () => loadNotifications()
-        )
-        .subscribe()
-    }
-
-    setup()
+    loadOnce()
 
     const handler = (e) => setUnreadCount(e.detail?.count ?? e.detail ?? 0)
     window.addEventListener("adminUnreadCount", handler)
+    // Refresh dropdown rows when AdminNotifications broadcasts them
+    const onRows = (e) => setNotifications(e.detail || [])
+    window.addEventListener("admin_bell_rows", onRows)
 
     return () => {
-      if (channel) supabase.removeChannel(channel)
+      cancelled = true
       window.removeEventListener("adminUnreadCount", handler)
+      window.removeEventListener("admin_bell_rows", onRows)
     }
   }, [])
 

@@ -122,14 +122,13 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
   useEffect(() => {
     localStorage.setItem("applicant_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
-
-  // ── Load notifications — layout badge only (no realtime here to avoid dup channels) ──
+  
   useEffect(() => {
-    let channel
+    let cancelled = false
 
-    const loadNotifications = async () => {
+    const loadOnce = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user || cancelled) return
 
       const { data } = await supabase
         .from("notifications")
@@ -140,6 +139,7 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
         .order("created_at", { ascending: false })
         .limit(50)
 
+      if (cancelled) return
       const all = data || []
       setNotifications(all.slice(0, 8))
       const count = all.length
@@ -147,39 +147,26 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
       localStorage.setItem("notif_unread", String(count))
     }
 
-    const setup = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      await loadNotifications()
-
-      // ✅ Unique channel name: layout-bell-{userId} — won't conflict with Notifications page
-      channel = supabase
-        .channel(`layout-bell-${user.id}`)
-        .on("postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications",
-            filter: `recipient_id=eq.${user.id}` },
-          () => loadNotifications()
-        )
-        .on("postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications",
-            filter: `recipient_id=eq.${user.id}` },
-          () => loadNotifications()
-        )
-        .subscribe()
-    }
-
-    setup()
-    return () => { if (channel) supabase.removeChannel(channel) }
+    loadOnce()
+    return () => { cancelled = true }
   }, [])
 
   // Listen for broadcast from Notifications page (keeps badge in sync)
   useEffect(() => {
-    const h = (e) => {
+    const onCount = (e) => {
       setNavUnread(e.detail)
       localStorage.setItem("notif_unread", String(e.detail))
     }
-    window.addEventListener("notif_unread_update", h)
-    return () => window.removeEventListener("notif_unread_update", h)
+    // Also refresh the dropdown rows when Notifications page broadcasts them
+    const onRows = (e) => {
+      setNotifications(e.detail || [])
+    }
+    window.addEventListener("notif_unread_update", onCount)
+    window.addEventListener("notif_bell_rows", onRows)
+    return () => {
+      window.removeEventListener("notif_unread_update", onCount)
+      window.removeEventListener("notif_bell_rows", onRows)
+    }
   }, [])
 
   // Click outside dropdown

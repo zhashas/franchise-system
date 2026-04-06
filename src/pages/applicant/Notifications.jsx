@@ -4,11 +4,13 @@ import { useNavigate } from "react-router-dom"
 import ApplicantLayout from "../../components/ApplicantLayout"
 import { X, Clock, MapPin, CheckCircle, FileText, AlertCircle } from "lucide-react"
 
-// ─── Broadcast unread count to layout bell badge ──────────────────────────────
+// ─── Broadcast unread count AND latest rows to layout bell ───────────────────
 function broadcastUnread(list) {
   const count = list.filter((n) => !n.is_read).length
   localStorage.setItem("notif_unread", String(count))
   window.dispatchEvent(new CustomEvent("notif_unread_update", { detail: count }))
+  const top8 = list.filter((n) => !n.is_read).slice(0, 8)
+  window.dispatchEvent(new CustomEvent("notif_bell_rows", { detail: top8 }))
 }
 
 // ─── Probe column name ────────────────────────────────────────────────────────
@@ -207,7 +209,7 @@ export default function ApplicantNotifications() {
   const userIdRef   = useRef(null)
   const idColumnRef = useRef(null)
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────
+  // ── Fetch notifications ────────────────────────────────────────────────────
   const fetchNotifications = useCallback(async (uid) => {
     const userId = uid || userIdRef.current
     if (!userId) { setLoading(false); return }
@@ -215,8 +217,13 @@ export default function ApplicantNotifications() {
     if (!idColumnRef.current) {
       const col = await probeUserIdColumn(userId)
       if (!col) {
-        setDiagInfo({ type: "no_column", message: "Could not find user-ID column in notifications table.\n\nTried: recipient_id, user_id, applicant_id, recipient\n\n➡️ Run fix_notifications_table.sql in Supabase → SQL Editor." })
-        setLoading(false); broadcastUnread([]); return
+        setDiagInfo({ 
+          type: "no_column", 
+          message: "Could not find user-ID column in notifications table.\n\nTried: recipient_id, user_id, applicant_id, recipient\n\n➡️ Run fix_notifications_table.sql in Supabase → SQL Editor." 
+        })
+        setLoading(false); 
+        broadcastUnread([]); 
+        return
       }
       idColumnRef.current = col
     }
@@ -229,7 +236,9 @@ export default function ApplicantNotifications() {
 
     if (error) {
       setDiagInfo({ type: "fetch_error", message: `${error.code}: ${error.message}` })
-      setLoading(false); broadcastUnread([]); return
+      setLoading(false); 
+      broadcastUnread([]); 
+      return
     }
 
     const rows = (data || []).filter(n => !n.recipient_type || n.recipient_type === "applicant")
@@ -257,7 +266,7 @@ export default function ApplicantNotifications() {
     return () => document.removeEventListener("visibilitychange", h)
   }, [fetchNotifications])
 
-  // ── Realtime — ✅ unique channel name: "notif-page-{userId}" ─────────────
+  // ── Realtime subscriptions ─────────────────────────────────────────────────
   useEffect(() => {
     let channel
     const setup = async () => {
@@ -271,7 +280,6 @@ export default function ApplicantNotifications() {
         return row[col] === userId && (!row.recipient_type || row.recipient_type === "applicant")
       }
 
-      // ✅ "notif-page-{userId}" is unique from layout's "layout-bell-{userId}"
       channel = supabase
         .channel(`notif-page-${userId}`)
         .on("postgres_changes",
@@ -301,34 +309,54 @@ export default function ApplicantNotifications() {
         )
         .subscribe((status, err) => {
           if (err) console.warn("[Notifications] Realtime error:", err)
-          if (status === "SUBSCRIBED") fetchNotifications(userId)
         })
     }
     setup()
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [fetchNotifications])
 
-  // ── Mark one as read & open correct modal ─────────────────────────────────
+  // ── Mark single notification read ─────────────────────────────────────────
+  const markRead = async (id) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+      broadcastUnread(updated)
+      return updated
+    })
+    await supabase.from("notifications").update({ is_read: true }).eq("id", id)
+  }
+
+  // ── Mark all read ─────────────────────────────────────────────────────────
+  const markAllRead = async () => {
+    const unread = notifications.filter(n => !n.is_read)
+    if (!unread.length) return
+    
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, is_read: true }))
+      broadcastUnread(updated)
+      return updated
+    })
+    
+    await Promise.all(unread.map(n =>
+      supabase.from("notifications").update({ is_read: true }).eq("id", n.id)
+    ))
+  }
+
+  // ── Handle notification click (mark read + modal/navigation) ──────────────
   const handleNotificationClick = async (notif) => {
     if (!notif.is_read) {
-      setNotifications((prev) => {
-        const updated = prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
-        broadcastUnread(updated)
-        return updated
-      })
-      await supabase.from("notifications").update({ is_read: true }).eq("id", notif.id)
+      await markRead(notif.id)
     }
 
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
 
-    // ✅ Appointment → appointment modal
+    // Appointment → appointment modal
     if (type.includes("appointment") || title.includes("appointment")) {
       setAppointmentNotif(notif)
       return
     }
 
-    // ✅ Application status → application modal
+    // Application status → application modal
     if (
       type.includes("status_") ||
       type.includes("approved") || type.includes("rejected") ||
@@ -339,23 +367,15 @@ export default function ApplicantNotifications() {
       return
     }
 
-    navigate("/applicant/dashboard")
+    // Default navigation
+    if (notif.application_id) {
+      navigate("/applicant/applications")
+    } else {
+      navigate("/applicant/dashboard")
+    }
   }
 
-  const markAllAsRead = async () => {
-    const unread = notifications.filter(n => !n.is_read)
-    if (!unread.length) return
-    setNotifications((prev) => {
-      const updated = prev.map(n => ({ ...n, is_read: true }))
-      broadcastUnread(updated)
-      return updated
-    })
-    await Promise.all(unread.map(n =>
-      supabase.from("notifications").update({ is_read: true }).eq("id", n.id)
-    ))
-  }
-
-  // ── UI helpers ────────────────────────────────────────────────────────────
+   // ── UI helpers ────────────────────────────────────────────────────────────
   const statusDot = (notif) => {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
@@ -363,11 +383,11 @@ export default function ApplicantNotifications() {
     if (type === "status_rejected"     || title.includes("rejected"))    return "bg-red-500"
     if (type === "status_for_release"  || title.includes("release"))     return "bg-purple-500"
     if (type === "status_under_review" || title.includes("review"))      return "bg-blue-500"
-    if (type.includes("appointment")   || title.includes("appointment")) return "bg-blue-400"
+    if (type.includes("appointment")   || title.includes("appointment")) return "bg-orange-500"
     if (type.includes("franchise_expired") || title.includes("expired")) return "bg-red-600"
-    if (type.includes("expiry_warning") || title.includes("expir"))      return "bg-orange-500"
+    if (type.includes("expiry_warning") || title.includes("expir"))      return "bg-orange-400"
     if (type.includes("mtop")          || title.includes("mtop"))        return "bg-sky-400"
-    if (type.includes("renewal")       || title.includes("renewal"))     return "bg-orange-400"
+    if (type.includes("renewal")       || title.includes("renewal"))     return "bg-amber-400"
     return "bg-gray-400"
   }
 
@@ -383,7 +403,7 @@ export default function ApplicantNotifications() {
     if (type === "status_rejected"     || title.includes("rejected"))    return { label: "Rejected",     cls: "bg-red-100 text-red-700" }
     if (type === "status_for_release"  || title.includes("release"))     return { label: "For Release",  cls: "bg-purple-100 text-purple-700" }
     if (type === "status_under_review" || title.includes("review"))      return { label: "Under Review", cls: "bg-blue-100 text-blue-700" }
-    if (type.includes("appointment")   || title.includes("appointment")) return { label: "Appointment",  cls: "bg-cyan-100 text-cyan-700" }
+    if (type.includes("appointment")   || title.includes("appointment")) return { label: "Appointment",  cls: "bg-orange-100 text-orange-700" }
     if (type.includes("expiry")        || title.includes("expir"))       return { label: "Expiry",       cls: "bg-orange-100 text-orange-700" }
     if (type.includes("mtop")          || title.includes("mtop"))        return { label: "MTOP",         cls: "bg-sky-100 text-sky-700" }
     return null
@@ -392,11 +412,11 @@ export default function ApplicantNotifications() {
   const getClickHint = (notif) => {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    if (type.includes("appointment") || title.includes("appointment")) return "📅 Tap to view appointment"
-    if (title.includes("approved"))   return "✅ Tap to view approval"
-    if (title.includes("rejected"))   return "❌ Tap to view details"
-    if (title.includes("review"))     return "🔍 Tap to view status"
-    if (title.includes("release"))    return "🏛️ Tap to view release info"
+    if (type.includes("appointment") || title.includes("appointment")) return "📅 Tap to view appointment details"
+    if (title.includes("approved"))   return "✅ Tap to view approval details"
+    if (title.includes("rejected"))   return "❌ Tap to view rejection reason"
+    if (title.includes("review"))     return "🔍 Tap to check status update"
+    if (title.includes("release"))    return "🏛️ Tap to get release instructions"
     return null
   }
 
@@ -405,6 +425,7 @@ export default function ApplicantNotifications() {
     " – " +
     new Date(date).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true })
 
+  // ── Filtering ─────────────────────────────────────────────────────────────
   const filtered =
     filter === "unread" ? notifications.filter(n => !n.is_read) :
     filter === "read"   ? notifications.filter(n =>  n.is_read) :
@@ -419,73 +440,114 @@ export default function ApplicantNotifications() {
         <AppointmentModal
           notif={appointmentNotif}
           onClose={() => setAppointmentNotif(null)}
-          onNavigate={() => { setAppointmentNotif(null); navigate("/applicant/appointments") }}
+          onNavigate={() => { 
+            setAppointmentNotif(null); 
+            navigate("/applicant/appointments") 
+          }}
         />
       )}
       {applicationNotif && (
         <ApplicationModal
           notif={applicationNotif}
           onClose={() => setApplicationNotif(null)}
-          onNavigate={() => { setApplicationNotif(null); navigate("/applicant/dashboard") }}
+          onNavigate={() => { 
+            setApplicationNotif(null); 
+            navigate("/applicant/applications") 
+          }}
         />
       )}
 
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="max-w-7xl mx-auto md:max-w-7xl">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
 
           {/* Header */}
-          <div className="bg-gray-100 px-6 py-4 border-b flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <h1 className="text-lg font-bold text-gray-800 uppercase tracking-wide">🔔 My Notifications</h1>
-              {unreadCount > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-red-500 text-white text-xs font-bold shadow">
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              )}
+          <div className="bg-gradient-to-r from-orange-50 to-orange-25 px-6 py-6 border-b border-orange-100">
+            <div className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg">
+                  <span className="text-2xl">🔔</span>
+                </div>
+                <div>
+                  <h1 className="text-2xl md:text-xl font-black text-gray-900 uppercase tracking-tight">
+                    My Notifications
+                  </h1>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Updates from the Franchise Office about your applications and appointments
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={markAllRead} 
+                disabled={unreadCount === 0}
+                className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg transform hover:scale-[1.02] ${
+                  unreadCount === 0
+                    ? "bg-gray-200 text-gray-500 cursor-not-allowed shadow-none"
+                    : "bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700 shadow-orange-500/25"
+                }`}
+              >
+                {unreadCount === 0 ? "All Caught Up!" : `Mark All Read (${unreadCount})`}
+              </button>
             </div>
-            <button onClick={markAllAsRead} disabled={unreadCount === 0}
-              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition ${
-                unreadCount === 0 ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-orange-500 hover:bg-orange-600 text-white"
-              }`}>
-              Mark All as Read
-            </button>
           </div>
 
           {/* Filter Bar */}
-          <div className="px-6 py-3 border-b bg-white flex items-center gap-3 flex-wrap">
-            <span className="text-xs text-gray-500 font-medium">Filter:</span>
-            <div className="flex gap-2">
-              {["all", "unread", "read"].map((f) => (
-                <button key={f} onClick={() => setFilter(f)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold uppercase transition ${
-                    filter === f ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-500 hover:bg-orange-50"
-                  }`}>
-                  {f}
-                  {f === "unread" && unreadCount > 0 && (
-                    <span className="ml-1 bg-red-500 text-white rounded-full px-1 text-[10px]">{unreadCount}</span>
-                  )}
-                </button>
-              ))}
+          <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-gray-700">Filter:</span>
+                <div className="flex gap-2">
+                  {["all", "unread", "read"].map((f) => (
+                    <button 
+                      key={f} 
+                      onClick={() => setFilter(f)}
+                      className={`px-4 py-2 rounded-2xl text-xs font-bold uppercase transition-all shadow-sm hover:shadow-md ${
+                        filter === f 
+                          ? "bg-orange-500 text-white shadow-orange-300/50" 
+                          : "bg-white text-gray-600 hover:bg-orange-50 border border-gray-200 hover:border-orange-200"
+                      }`}
+                    >
+                      {f}
+                      {f === "unread" && unreadCount > 0 && (
+                        <span className="ml-1.5 bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-bold min-w-[1.5rem] h-[1.5rem] flex items-center justify-center">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="text-sm text-gray-500 ml-auto text-right">
+                <span className="font-semibold text-orange-600">{unreadCount}</span> unread • 
+                <span className="font-semibold text-gray-700 ml-1">{notifications.length}</span> total
+              </div>
             </div>
-            <span className="ml-auto text-xs text-gray-400">{unreadCount} unread · {notifications.length} total</span>
           </div>
 
-          {/* Body */}
+          {/* Content */}
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 text-orange-500 gap-3">
-              <span className="text-3xl animate-spin">⏳</span>
-              <p className="text-sm font-semibold">Loading notifications…</p>
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
+              <div className="w-16 h-16 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin"></div>
+              <p className="text-lg font-semibold">Loading notifications...</p>
+              <p className="text-sm">Fetching updates from the Franchise Office</p>
             </div>
-
           ) : diagInfo ? (
-            <div className="mx-6 my-8 bg-amber-50 border border-amber-300 rounded-xl p-5 text-sm text-amber-800">
-              <p className="font-bold mb-2 text-base">⚠️ Notifications table needs setup</p>
-              <pre className="text-xs whitespace-pre-wrap break-words bg-amber-100 rounded-lg p-3 mb-4 text-amber-900">{diagInfo.message}</pre>
+            <div className="mx-6 my-12 bg-amber-50 border-2 border-amber-300 rounded-2xl p-8 text-sm">
+              <div className="flex items-start gap-3 mb-6">
+                <div className="w-12 h-12 bg-amber-400 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xl">⚠️</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-amber-900 mb-2">Notifications Setup Required</h3>
+                  <pre className="whitespace-pre-wrap break-words bg-amber-100 rounded-xl p-4 text-amber-900 font-mono text-sm">{diagInfo.message}</pre>
+                </div>
+              </div>
               {diagInfo.type === "no_column" && (
-                <div className="bg-white border border-amber-200 rounded-xl p-4 mb-4 text-xs space-y-2">
-                  <p className="font-bold text-gray-700">📋 Quick Fix — run this in Supabase → SQL Editor:</p>
-                  <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto">{`ALTER TABLE notifications
-  ADD COLUMN IF NOT EXISTS recipient_id UUID,
+                <div className="bg-white border-2 border-amber-200 rounded-xl p-6 space-y-4">
+                  <h4 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                    🔧 Quick Fix - Run in Supabase SQL Editor:
+                  </h4>
+                  <pre className="bg-gray-900 text-green-400 rounded-xl p-4 text-xs overflow-x-auto font-mono leading-relaxed">{`ALTER TABLE notifications
+  ADD COLUMN IF NOT EXISTS recipient_id UUID REFERENCES auth.users(id),
   ADD COLUMN IF NOT EXISTS recipient_type TEXT DEFAULT 'applicant',
   ADD COLUMN IF NOT EXISTS sender_type TEXT DEFAULT 'admin',
   ADD COLUMN IF NOT EXISTS application_id UUID,
@@ -495,62 +557,99 @@ export default function ApplicantNotifications() {
   ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;`}</pre>
                 </div>
               )}
-              <button onClick={() => { idColumnRef.current = null; setLoading(true); fetchNotifications() }}
-                className="bg-orange-500 hover:bg-orange-600 text-white text-xs px-4 py-2 rounded-lg font-bold transition">
-                🔄 Retry after fixing
+              <button 
+                onClick={() => { idColumnRef.current = null; setLoading(true); fetchNotifications() }}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 px-6 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl"
+              >
+                🔄 Retry After Fixing Table
               </button>
             </div>
-
           ) : filtered.length === 0 ? (
-            <div className="text-center py-16 text-gray-400">
-              <p className="text-4xl mb-3">🔔</p>
-              <p className="font-medium">No notifications found.</p>
+            <div className="text-center py-24 text-gray-400">
+              <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl flex items-center justify-center shadow-lg">
+                <span className="text-4xl">🔔</span>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-500 mb-3">
+                No notifications yet
+              </h3>
+              <p className="text-lg max-w-md mx-auto leading-relaxed">
+                {filter === "unread"
+                  ? "🎉 You're all caught up! No unread notifications."
+                  : "Notifications from the Franchise Office will appear here when you receive updates about your applications and appointments."
+                }
+              </p>
             </div>
-
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-100 max-h-[70vh] overflow-y-auto">
               {filtered.map((notif) => {
                 const pill  = getTypePill(notif)
                 const hint  = getClickHint(notif)
-                const isInteractive = !!hint
+                const isInteractive = !!hint || notif.application_id
                 return (
-                  <div key={notif.id} onClick={() => handleNotificationClick(notif)}
-                    className={`flex items-start gap-4 px-6 py-4 cursor-pointer transition ${
+                  <div 
+                    key={notif.id} 
+                    onClick={() => handleNotificationClick(notif)}
+                    className={`flex items-start gap-4 p-6 cursor-pointer transition-all group hover:shadow-md hover:-translate-y-0.5 ${
                       notif.is_read
-                        ? "bg-white hover:bg-gray-50"
-                        : "bg-orange-50 hover:bg-orange-100 border-l-4 border-orange-400"
-                    }`}>
-                    <div className="flex-shrink-0 mt-1.5">
-                      <div className={`w-3 h-3 rounded-full ${statusDot(notif)}`} />
+                        ? "bg-white hover:bg-gray-50" 
+                        : "bg-gradient-to-r from-orange-50 to-orange-25 border-l-4 border-orange-400 shadow-sm hover:shadow-md"
+                    }`}
+                  >
+                    {/* Status Dot */}
+                    <div className="flex-shrink-0 mt-2">
+                      <div className={`w-4 h-4 rounded-full shadow-sm ${statusDot(notif)} ring-2 ring-white/50 group-hover:scale-110 transition-transform`} />
                     </div>
 
+                    {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <p className={`text-sm font-semibold ${notif.is_read ? "text-gray-500" : "text-gray-800"}`}>
-                          {notif.title}
-                        </p>
+                      <div className="flex items-start gap-3 mb-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <p className={`text-base font-bold leading-tight ${
+                            notif.is_read 
+                              ? "text-gray-600 group-hover:text-gray-800" 
+                              : "text-gray-900 group-hover:text-orange-900"
+                          }`}>
+                            {notif.title}
+                          </p>
+                          {pill && (
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full shadow-sm ${pill.cls}`}>
+                              {pill.label}
+                            </span>
+                          )}
+                        </div>
                         {senderBadge(notif)}
-                        {pill && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${pill.cls}`}>
-                            {pill.label}
-                          </span>
-                        )}
                       </div>
-                      <p className={`text-xs mt-0.5 leading-relaxed ${notif.is_read ? "text-gray-400" : "text-gray-600"}`}>
+                      
+                      <p className={`text-sm leading-relaxed mb-3 ${
+                        notif.is_read ? "text-gray-500" : "text-gray-700"
+                      }`}>
                         {notif.message}
                       </p>
-                      {/* ✅ Clickable hint for interactive notifications */}
+
+                      {/* Click hint for interactive notifications */}
                       {isInteractive && (
-                        <p className="text-xs text-blue-500 mt-1 font-medium">{hint}</p>
+                        <div className="flex items-center gap-2 text-xs text-blue-600 font-semibold bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100 group-hover:bg-blue-100 transition-all">
+                          <span>{hint || "📋 Tap to view details"}</span>
+                          <span className="w-4 h-4 text-blue-500">→</span>
+                        </div>
                       )}
                     </div>
 
-                    <div className="flex-shrink-0 text-right">
-                      <p className="text-xs text-gray-400 whitespace-nowrap">{formatDate(notif.created_at)}</p>
-                      {!notif.is_read
-                        ? <span className="inline-block mt-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">New</span>
-                        : <span className="inline-block mt-1 text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Read</span>
-                      }
+                    {/* Timestamp & Status */}
+                    <div className="flex-shrink-0 text-right space-y-2">
+                      <p className="text-xs text-gray-400 whitespace-nowrap font-mono tracking-wide">
+                        {formatDate(notif.created_at)}
+                      </p>
+                      {!notif.is_read ? (
+                        <div className="inline-flex items-center gap-1 bg-orange-500 text-white text-xs px-3 py-1.5 rounded-full font-bold shadow-lg">
+                          <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                          New
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-xs px-3 py-1.5 rounded-full font-medium">
+                          ✓ Read
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
