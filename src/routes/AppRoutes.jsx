@@ -26,7 +26,7 @@ import StaffReports from "../pages/staff/Reports";
 import StaffNotifications from "../pages/staff/Notifications"; 
 import StaffSettings from "../pages/staff/Settings";
 
-
+import OverviewPage from "../pages/OverviewPage"; 
 
 // Protected Route
 function ProtectedRoute({ children, allowedRoles }) {
@@ -232,6 +232,14 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["staff"]}>
               <StaffSettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/overview"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <OverviewPage/>
             </ProtectedRoute>
           }
         />
