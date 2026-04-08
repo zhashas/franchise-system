@@ -193,8 +193,7 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    navigate("/login")
-  }
+    navigate("/", { state: { openLogin: true } })  }
 
   const markAllAsRead = async () => {
     const { data: { user } } = await supabase.auth.getUser()
