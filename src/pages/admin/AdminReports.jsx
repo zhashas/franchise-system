@@ -274,15 +274,13 @@ export default function AdminReports() {
       <div className="max-w-7xl mx-auto space-y-6 px-1">
 
         {/* ── HEADER ── */}
-        <div className="rounded-xl px-6 py-5 bg-gradient-to-r from-orange-500 to-orange-400 shadow-md">
-          <p className="text-xs font-semibold text-orange-100 uppercase tracking-widest mb-0.5">
-            Municipal Franchise Management System
-          </p>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">Reports</h1>
-          <p className="text-sm text-orange-100 mt-0.5">
-            Franchise holder records, expiry tracking, and MTOP reminders.
-          </p>
-        </div>
+        <div className="rounded-xl p-6 border bg-amber-50 border-amber-200">
+  <h1 className="text-xl font-bold text-black ">Reports</h1>
+  <p className="text-sm text-gray-600 mt-0.5">
+    Franchise holder records, expiry tracking, and MTOP reminders.
+  </p>
+</div>
+
 
         {/* ── 3 FILTER CARDS ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

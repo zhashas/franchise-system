@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../../lib/supabaseClient"
-import { useNavigate } from "react-router-dom"
+import {} from "react-router-dom"
 import AdminLayout from "../../components/AdminLayout"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
@@ -95,7 +95,6 @@ export default function AdminDashboard() {
   const [blasting,    setBlasting]    = useState({})
   const [blastResult, setBlastResult] = useState({})
   const [,     setLoading]     = useState(true)
-  const navigate = useNavigate()
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -223,9 +222,8 @@ export default function AdminDashboard() {
 
         {/* ── HEADER ── */}
         <div className="rounded-xl px-6 py-5 bg-orange-50 border border-orange-200 shadow-sm">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-0.5">Municipal Franchise Management System</p>
           <h1 className="text-2xl font-bold text-black tracking-tight">Admin Dashboard</h1>
-          <p className="text-sm text-gray-600 mt-0.5">Welcome back, <span className="font-semibold">{profile?.full_name ?? "Administrator"}</span>.</p>
+          <p className="text-sm text-black mt-0.5">Welcome back, <span className="font-semibold">{profile?.full_name ?? "Administrator"}</span>.</p>
         </div>
 
         {/* ── SLOT PROGRESS BAR ── */}
@@ -259,40 +257,6 @@ export default function AdminDashboard() {
               <p className="text-xs font-semibold text-gray-500 leading-tight">{s.label}</p>
             </div>
           ))}
-        </div>
-
-        {/* ── APPLICATION STAT CARDS ── */}
-        <div>
-          <h2 className="text-xs font-bold text-black-500 uppercase tracking-widest mb-3">Application Overview</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[
-              { label: "Total",        value: appStats.total,        color: "#111",    bg: "#F3F4F6", border: "#D1D5DB" },
-              { label: "Pending",      value: appStats.pending,      color: "#D97706", bg: "#FFFBEB", border: "#FCD34D" },
-              { label: "Under Review", value: appStats.under_review, color: "#2563EB", bg: "#EFF6FF", border: "#93C5FD" },
-              { label: "Approved",     value: appStats.approved,     color: "#16A34A", bg: "#ECFDF5", border: "#6EE7B7" },
-              { label: "Rejected",     value: appStats.rejected,     color: "#DC2626", bg: "#FEF2F2", border: "#FCA5A5" },
-            ].map((s, i) => (
-              <div key={i} className="p-4 rounded-lg border" style={{ background: s.bg, borderColor: s.border }}>
-                <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
-                <p className="text-xs font-medium mt-0.5" style={{ color: s.color }}>{s.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* ── QUICK ACTIONS ── */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <button onClick={() => navigate("/admin/applications")}
-            className="group relative overflow-hidden p-5 bg-emerald-500 hover:bg-emerald-600 rounded-xl font-bold text-white text-base shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 text-left">
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl opacity-20 group-hover:opacity-100 transition">📝</span>
-            <span className="relative">APPLICATIONS</span>
-            <p className="text-xs font-normal text-emerald-100 mt-0.5 relative">View and manage all franchise applications</p>
-          </button>
-          <button onClick={() => navigate("/admin/appointments")}
-            className="group relative overflow-hidden p-5 bg-blue-500 hover:bg-blue-600 rounded-xl font-bold text-white text-base shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 text-left">
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl opacity-20 group-hover:opacity-100 transition">📅</span>
-            <span className="relative">APPOINTMENTS</span>
-            <p className="text-xs font-normal text-blue-100 mt-0.5 relative">Schedule and track applicant appointments</p>
-          </button>
         </div>
 
         {/* ── BULK NOTIFICATIONS ── */}

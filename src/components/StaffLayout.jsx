@@ -77,7 +77,7 @@ useEffect(() => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    navigate("/login")
+    navigate("/")
   }
 
   const markAllAsRead = async () => {
@@ -277,7 +277,7 @@ useEffect(() => {
                 {/* View All */}
                 <div className="border-t">
                   <button
-                    onClick={() => { setShowDropdown(false); navigate("/admin/notifications") }}
+                    onClick={() => { setShowDropdown(false); navigate("/staff/notifications") }}
                     className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition"
                   >
                     View All Notifications →
@@ -307,7 +307,7 @@ useEffect(() => {
           {children}
         </div>
       </div>
-  
+
       {/* LOGOUT MODAL */}
       {showLogoutModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

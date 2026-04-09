@@ -142,8 +142,6 @@ const LEGENDS = [
   { key: "all", label: "All", dot: "bg-gray-400" },
   { key: "new_application", label: "New Application", dot: "bg-green-500" },
   { key: "renewal", label: "Renewal Request", dot: "bg-orange-500" },
-  { key: "appointment", label: "Appointment", dot: "bg-blue-500" },
-  { key: "document", label: "Document Upload", dot: "bg-purple-500" },
   { key: "mtop_reminder", label: "MTOP Reminder", dot: "bg-blue-500" },
   { key: "expiry_30", label: "Expiry 30 Days", dot: "bg-orange-500" },
   { key: "expiry_15", label: "Expiry 15 Days", dot: "bg-red-500" },

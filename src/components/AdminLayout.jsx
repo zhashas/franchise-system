@@ -4,17 +4,15 @@ import { supabase } from "../lib/supabaseClient"
 import {
   Home, ClipboardList, Calendar, BarChart3, Bell, LogOut,
   ChevronLeft, ChevronRight, Settings, X, Clock, MapPin, CheckCircle,
-  Users
+  Users, KeyRound, UserPlus, ChevronDown, ChevronUp, UserCog, Activity
 } from "lucide-react"
 
-// ─── Appointment Detail Modal ─────────────────────────────────────────────────
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null
   const formatDate = (d) =>
     new Date(d).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })
   const formatTime = (d) =>
     new Date(d).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true })
-
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-blue-500">
@@ -56,8 +54,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
           </div>
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-800 space-y-1">
             <div className="flex items-center gap-1.5 font-bold mb-1">
-              <MapPin size={12} />
-              <span>Admin Action Required:</span>
+              <MapPin size={12} /><span>Admin Action Required:</span>
             </div>
             <p>• Review the applicant's request in Appointments</p>
             <p>• Set a date and time for the appointment</p>
@@ -66,14 +63,13 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
         </div>
         <div className="px-6 pb-5 flex gap-3">
           <button onClick={onNavigate} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow">Go to Appointments →</button>
-          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Dismiss</button>
+          <button onClick={onClose}    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Dismiss</button>
         </div>
       </div>
     </div>
   )
 }
 
-// ─── Application Detail Modal ─────────────────────────────────────────────────
 function ApplicationModal({ notif, onClose, onNavigate }) {
   if (!notif) return null
   return (
@@ -119,33 +115,61 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
         </div>
         <div className="px-6 pb-5 flex gap-3">
           <button onClick={onNavigate} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm transition shadow">View Application →</button>
-          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Later</button>
+          <button onClick={onClose}    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Later</button>
         </div>
       </div>
     </div>
   )
 }
 
-// ─── Main Layout ──────────────────────────────────────────────────────────────
+function SidebarAvatar({ name }) {
+  const initials = (name || "AD").split(" ").slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("")
+  return (
+    <div className="w-8 h-8 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+      {initials}
+    </div>
+  )
+}
+
 export default function AdminLayout({ children, backPath, backLabel }) {
-  const [collapsed,        setCollapsed]        = useState(() => {
-    try { return JSON.parse(localStorage.getItem("admin_sidebar")) ?? false }
-    catch { return false }
+  const [collapsed,            setCollapsed]            = useState(() => {
+    try { return JSON.parse(localStorage.getItem("admin_sidebar")) ?? false } catch { return false }
   })
-  const [showLogoutModal,  setShowLogoutModal]  = useState(false)
-  const [unreadCount,      setUnreadCount]      = useState(0)
-  const [notifications,    setNotifications]    = useState([])
-  const [showDropdown,     setShowDropdown]     = useState(false)
-  const [appointmentNotif, setAppointmentNotif] = useState(null)
-  const [applicationNotif, setApplicationNotif] = useState(null)
+  const [showLogoutModal,      setShowLogoutModal]      = useState(false)
+  const [unreadCount,          setUnreadCount]          = useState(0)
+  const [notifications,        setNotifications]        = useState([])
+  const [showDropdown,         setShowDropdown]         = useState(false)
+  const [appointmentNotif,     setAppointmentNotif]     = useState(null)
+  const [applicationNotif,     setApplicationNotif]     = useState(null)
+  const [settingsOpenOverride, setSettingsOpenOverride] = useState(false)
+  const [adminProfile,         setAdminProfile]         = useState(null)
 
   const dropdownRef = useRef()
   const navigate    = useNavigate()
   const location    = useLocation()
 
+  const settingsSubItems = [
+    { path: "/admin/staff",         icon: Users,     label: "Add Staff"       },
+    { path: "/admin/add-applicant", icon: UserPlus,  label: "Add Applicant"   },
+    { path: "/admin/logs",          icon: Activity,  label: "Activity Logs"   },
+    { path: "/admin/settings",      icon: KeyRound,  label: "Change Password" },
+  ]
+
+  // Derived — no effect needed
+  const settingsOpen = settingsOpenOverride
+    || settingsSubItems.some(s => location.pathname.startsWith(s.path))
+
+  useEffect(() => { localStorage.setItem("admin_sidebar", JSON.stringify(collapsed)) }, [collapsed])
+
   useEffect(() => {
-    localStorage.setItem("admin_sidebar", JSON.stringify(collapsed))
-  }, [collapsed])
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single()
+      setAdminProfile(data || { full_name: "Administrator", email: user.email })
+    }
+    load()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -155,11 +179,8 @@ export default function AdminLayout({ children, backPath, backLabel }) {
       const { data } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
-        .eq("recipient_type", "admin")
-        .eq("recipient_id", user.id)
-        .eq("sender_type", "applicant")
-        .order("created_at", { ascending: false })
-        .limit(50)
+        .eq("recipient_type", "admin").eq("recipient_id", user.id).eq("sender_type", "applicant")
+        .order("created_at", { ascending: false }).limit(50)
       if (cancelled) return
       const unread = (data || []).filter(n => !n.is_read)
       setNotifications(unread.slice(0, 10))
@@ -167,8 +188,8 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     }
     loadOnce()
     const handler = (e) => setUnreadCount(e.detail?.count ?? e.detail ?? 0)
+    const onRows  = (e) => setNotifications(e.detail || [])
     window.addEventListener("adminUnreadCount", handler)
-    const onRows = (e) => setNotifications(e.detail || [])
     window.addEventListener("admin_bell_rows", onRows)
     return () => {
       cancelled = true
@@ -178,25 +199,19 @@ export default function AdminLayout({ children, backPath, backLabel }) {
   }, [])
 
   useEffect(() => {
-    const h = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false)
-    }
+    const h = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false) }
     document.addEventListener("mousedown", h)
     return () => document.removeEventListener("mousedown", h)
   }, [])
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    navigate("/login")
-  }
+  const handleLogout = async () => { await supabase.auth.signOut(); navigate("/") }
 
   const markAllAsRead = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     await supabase.from("notifications").update({ is_read: true })
       .eq("recipient_type", "admin").eq("recipient_id", user.id).eq("is_read", false)
-    setNotifications([])
-    setUnreadCount(0)
+    setNotifications([]); setUnreadCount(0)
   }
 
   const handleBellNotifClick = async (notif) => {
@@ -207,12 +222,8 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
     const msg   = notif.message?.toLowerCase() || ""
-    if (type.includes("appointment") || title.includes("appointment") || msg.includes("appointment")) {
-      setAppointmentNotif(notif); return
-    }
-    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted") || title.includes("renewal")) {
-      setApplicationNotif(notif); return
-    }
+    if (type.includes("appointment") || title.includes("appointment") || msg.includes("appointment")) { setAppointmentNotif(notif); return }
+    if (type === "application_submitted" || title.includes("new application") || title.includes("submitted") || title.includes("renewal")) { setApplicationNotif(notif); return }
     if (notif.application_id) navigate(`/admin/applications/${notif.application_id}`)
     else navigate("/admin/notifications")
   }
@@ -220,11 +231,11 @@ export default function AdminLayout({ children, backPath, backLabel }) {
   const getNotifDot = (notif) => {
     const type  = notif.notification_type || ""
     const title = notif.title?.toLowerCase() || ""
-    if (type === "application_submitted" || title.includes("submitted")) return "bg-green-500"
-    if (type === "renewal_request"       || title.includes("renewal"))   return "bg-orange-500"
+    if (type === "application_submitted" || title.includes("submitted"))   return "bg-green-500"
+    if (type === "renewal_request"       || title.includes("renewal"))     return "bg-orange-500"
     if (type === "appointment_request"   || title.includes("appointment")) return "bg-blue-500"
-    if (type === "document_uploaded"     || title.includes("document"))  return "bg-purple-500"
-    if (type === "inquiry"               || title.includes("inquiry"))   return "bg-yellow-400"
+    if (type === "document_uploaded"     || title.includes("document"))    return "bg-purple-500"
+    if (type === "inquiry"               || title.includes("inquiry"))     return "bg-yellow-400"
     return "bg-gray-400"
   }
 
@@ -236,20 +247,18 @@ export default function AdminLayout({ children, backPath, backLabel }) {
     return `${Math.floor(diffMin / 1440)}d ago`
   }
 
-  const menuItems = [
+  const mainMenuItems = [
     { path: "/admin/dashboard",     icon: Home,          label: "Home"          },
     { path: "/admin/applications",  icon: ClipboardList, label: "Applications"  },
     { path: "/admin/appointments",  icon: Calendar,      label: "Appointments"  },
     { path: "/admin/reports",       icon: BarChart3,     label: "Reports"       },
     { path: "/admin/notifications", icon: Bell,          label: "Notifications", badge: true },
-    { path: "/admin/staff",         icon: Users,         label: "Add Staff"     },
-    { path: "/admin/settings",      icon: Settings,      label: "Settings"      },
-
   ]
+
+  const isSettingsActive = settingsSubItems.some(s => location.pathname === s.path)
 
   return (
     <div className="flex h-screen overflow-hidden">
-
       {appointmentNotif && (
         <AppointmentModal
           notif={appointmentNotif}
@@ -264,39 +273,38 @@ export default function AdminLayout({ children, backPath, backLabel }) {
           onNavigate={() => {
             const id = applicationNotif.application_id
             setApplicationNotif(null)
-            if (id) navigate(`/admin/applications/${id}`)
-            else navigate("/admin/applications")
+            navigate(id ? `/admin/applications/${id}` : "/admin/applications")
           }}
         />
       )}
 
       {/* SIDEBAR */}
       <div className={`flex-shrink-0 bg-gradient-to-b from-orange-600 to-orange-500 text-white flex flex-col shadow-xl transition-all duration-300 h-screen sticky top-0 ${collapsed ? "w-16" : "w-56"}`}>
-        <div className="p-4 border-b border-orange-400 flex items-center gap-2">
-          <div className="bg-white p-1.5 rounded-full flex-shrink-0">
-            <BarChart3 className="w-5 h-5 text-orange-500" />
+        
+          <div className={`flex items-center gap-2.5 px-3 py-3 rounded-xl bg-orange-700/40 border border-orange-400/30 ${collapsed ? "justify-center" : ""}`}>
+            <SidebarAvatar name={adminProfile?.full_name} />
+            {!collapsed && (
+              <>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-white truncate leading-tight">{adminProfile?.full_name || "Administrator"}</p>
+                  <p className="text-[10px] text-orange-200 truncate mt-0.5">{adminProfile?.email || ""}</p>
+                </div>
+                <UserCog size={13} className="text-orange-300 flex-shrink-0" />
+              </>
+            )}
           </div>
-          {!collapsed && (
-            <div>
-              <p className="font-bold text-xs leading-tight">San Jose</p>
-              <p className="text-orange-200 text-xs">Franchise System</p>
-            </div>
-          )}
-        </div>
 
         <button onClick={() => setCollapsed(p => !p)} className="mx-auto mt-2 text-orange-200 hover:text-white transition">
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
 
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => {
-            const Icon     = item.icon
+          {mainMenuItems.map((item) => {
+            const Icon = item.icon
             const isActive = location.pathname === item.path
             return (
               <button key={item.path} onClick={() => navigate(item.path)}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition relative ${
-                  isActive ? "bg-white text-orange-600 shadow" : "text-white hover:bg-orange-400"
-                }`}>
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition relative ${isActive ? "bg-white text-orange-600 shadow" : "text-white hover:bg-orange-400"}`}>
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
                 {item.badge && unreadCount > 0 && (
@@ -307,9 +315,41 @@ export default function AdminLayout({ children, backPath, backLabel }) {
               </button>
             )
           })}
+
+          {/* Settings with dropdown */}
+          <div>
+            <button
+              onClick={() => collapsed ? navigate("/admin/settings") : setSettingsOpenOverride(p => !p)}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition ${isSettingsActive ? "bg-white text-orange-600 shadow" : "text-white hover:bg-orange-400"}`}>
+              <Settings className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 text-left">Settings</span>
+                  {settingsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </>
+              )}
+            </button>
+
+            {!collapsed && settingsOpen && (
+              <div className="mt-1 ml-3 space-y-0.5 border-l-2 border-orange-400 pl-3">
+                {settingsSubItems.map((sub) => {
+                  const SubIcon = sub.icon
+                  const isActive = location.pathname === sub.path
+                  return (
+                    <button key={sub.path} onClick={() => navigate(sub.path)}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition ${isActive ? "bg-white text-orange-600 shadow" : "text-orange-100 hover:bg-orange-400 hover:text-white"}`}>
+                      <SubIcon className="w-4 h-4 flex-shrink-0" />
+                      <span>{sub.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </nav>
 
-        <div className="p-3 border-t border-orange-400">
+        {/* Bottom: Logout + Profile */}
+        <div className="px-2 pb-3 space-y-1 border-t border-orange-400 pt-2">
           <button onClick={() => setShowLogoutModal(true)}
             className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-white hover:bg-orange-400 transition">
             <LogOut className="w-5 h-5 flex-shrink-0" />
@@ -322,7 +362,7 @@ export default function AdminLayout({ children, backPath, backLabel }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="bg-white shadow-sm px-6 py-3 flex justify-between items-center flex-shrink-0">
           <p className="text-sm text-gray-500">Municipality of San Jose, Occidental Mindoro</p>
-          <div className="flex items-center gap-4 relative" ref={dropdownRef}>
+          <div className=" right-20 flex items-center gap-4" ref={dropdownRef}>
             <button onClick={() => setShowDropdown(p => !p)} className="relative p-1">
               <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
@@ -331,7 +371,6 @@ export default function AdminLayout({ children, backPath, backLabel }) {
                 </span>
               )}
             </button>
-
             {showDropdown && (
               <div className="absolute right-0 top-9 w-80 bg-white shadow-xl rounded-xl border border-gray-100 z-50 overflow-hidden">
                 <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
@@ -354,8 +393,7 @@ export default function AdminLayout({ children, backPath, backLabel }) {
                       const isAppt = (notif.notification_type || "").includes("appointment") || (notif.title || "").toLowerCase().includes("appointment")
                       const isApp  = (notif.notification_type || "") === "application_submitted" || (notif.title || "").toLowerCase().includes("application") || (notif.title || "").toLowerCase().includes("renewal")
                       return (
-                        <div key={notif.id} onClick={() => handleBellNotifClick(notif)}
-                          className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition">
+                        <div key={notif.id} onClick={() => handleBellNotifClick(notif)} className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-orange-50 transition">
                           <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getNotifDot(notif)}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -378,24 +416,22 @@ export default function AdminLayout({ children, backPath, backLabel }) {
                   </div>
                 )}
                 <div className="border-t">
-                  <button onClick={() => { setShowDropdown(false); navigate("/admin/notifications") }}
+                  <button
+                    onClick={() => { setShowDropdown(false); navigate("/admin/notifications") }}
                     className="w-full text-center text-xs py-2.5 text-orange-500 hover:bg-orange-50 font-semibold transition">
                     View All Notifications →
                   </button>
                 </div>
               </div>
             )}
-
             {backPath && (
-              <button onClick={() => navigate(backPath)}
-                className="flex items-center gap-1 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition border border-orange-200">
+              <button onClick={() => navigate(backPath)} className="flex items-center gap-1 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition border border-orange-200">
                 ← {backLabel || "Back"}
               </button>
             )}
-            <span className="text-lg bg-orange-100 text-blue-600 px-3 py-1 rounded-full font-medium border border-orange-600">⚙️ ADMIN</span>
+
           </div>
         </div>
-
         <div className="flex-1 overflow-y-auto p-6">{children}</div>
       </div>
 

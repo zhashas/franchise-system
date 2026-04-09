@@ -98,7 +98,6 @@ export default function AdminApplications() {
   const stats = [
     { key: "all",          label: "Total",        value: applications.length,                                            color: "#000",    bg: "#F3F4F6" },
     { key: "pending",      label: "Pending",       value: applications.filter(a => a.status === "pending").length,       color: "#D97706", bg: "#FFFBEB" },
-    { key: "under_review", label: "Under Review",  value: applications.filter(a => a.status === "under_review").length,  color: "#2563EB", bg: "#EFF6FF" },
     { key: "approved",     label: "Approved",      value: applications.filter(a => a.status === "approved").length,      color: "#16A34A", bg: "#ECFDF5" },
     { key: "rejected",     label: "Rejected",      value: applications.filter(a => a.status === "rejected").length,      color: "#DC2626", bg: "#FEF2F2" },
     { key: "for_release",  label: "For Release",   value: applications.filter(a => a.status === "for_release").length,   color: "#7C3AED", bg: "#F5F3FF" },
@@ -118,7 +117,7 @@ export default function AdminApplications() {
         </div>
 
         {/* STATS / FILTER */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+        <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
           {stats.map(stat => (
             <div
               key={stat.key}
