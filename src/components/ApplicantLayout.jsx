@@ -123,13 +123,15 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
     localStorage.setItem("applicant_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
-  // ── Load notifications — layout badge only (no realtime here to avoid dup channels) ──
+  // ── Load notifications ────────────────────────────────────────────────────
+  const channelRef = useRef(null)
+
   useEffect(() => {
-    let channel
+    let cancelled = false
 
     const loadNotifications = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user || cancelled) return
 
       const { data } = await supabase
         .from("notifications")
@@ -140,6 +142,7 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
         .order("created_at", { ascending: false })
         .limit(50)
 
+      if (cancelled) return
       const all = data || []
       setNotifications(all.slice(0, 8))
       const count = all.length
@@ -149,27 +152,39 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
 
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      await loadNotifications()
+      if (!user || cancelled) return
 
-      // ✅ Unique channel name: layout-bell-{userId} — won't conflict with Notifications page
-      channel = supabase
+      await loadNotifications()
+      if (cancelled) return
+
+      // Remove any stale channel before creating a new one
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+
+      channelRef.current = supabase
         .channel(`layout-bell-${user.id}`)
         .on("postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications",
-            filter: `recipient_id=eq.${user.id}` },
+          { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${user.id}` },
           () => loadNotifications()
         )
         .on("postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications",
-            filter: `recipient_id=eq.${user.id}` },
+          { event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${user.id}` },
           () => loadNotifications()
         )
         .subscribe()
     }
 
     setup()
-    return () => { if (channel) supabase.removeChannel(channel) }
+
+    return () => {
+      cancelled = true
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+    }
   }, [])
 
   // Listen for broadcast from Notifications page (keeps badge in sync)
@@ -193,7 +208,8 @@ export default function ApplicantLayout({ children, backPath, backLabel }) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    navigate("/", { state: { openLogin: true } })  }
+    navigate("/login")
+  }
 
   const markAllAsRead = async () => {
     const { data: { user } } = await supabase.auth.getUser()

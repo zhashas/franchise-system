@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { supabase } from "../lib/supabaseClient"
+import { logActivity } from "../lib/Logger"
 import {
   Home, ClipboardList, Calendar, BarChart3, Bell, LogOut,
   ChevronLeft, ChevronRight, Settings
@@ -76,6 +77,7 @@ useEffect(() => {
   }, [])
 
   const handleLogout = async () => {
+    await logActivity({ action: "logout", details: "Staff signed out" })
     await supabase.auth.signOut()
     navigate("/")
   }
