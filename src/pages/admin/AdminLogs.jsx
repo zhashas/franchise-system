@@ -191,6 +191,7 @@ function EmptyState({ hasFilters, onClear }) {
 export default function AdminLogs() {
   const [logs,            setLogs]            = useState([])
   const [loading,         setLoading]         = useState(true)
+  const [fetchError,      setFetchError]      = useState(null)
   const [total,           setTotal]           = useState(0)
   const [page,            setPage]            = useState(0)
   const [expandedId,      setExpandedId]      = useState(null)
@@ -229,8 +230,20 @@ export default function AdminLogs() {
   /* ── Fetch ── */
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
+    const run = async () => {
       setLoading(true)
+
+      // Guard: ensure the auth session is valid before querying.
+      // After a tab-switch or navigation Supabase may be mid-refresh;
+      // getSession() waits for that to settle so we always get a live token.
+      const { data: { session } } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (!session) {
+        setFetchError("Your session has expired. Please refresh the page.")
+        setLoading(false)
+        return
+      }
+
       let query = supabase
         .from("activity_logs")
         .select("*", { count: "exact" })
@@ -246,11 +259,22 @@ export default function AdminLogs() {
 
       const { data, count, error } = await query
       if (cancelled) return
-      if (error) console.error("[AdminLogs] fetch error:", error.message)
+
+      if (error) {
+        // Don't wipe existing logs on a transient error – keep stale data
+        // visible and surface a dismissible banner instead.
+        console.error("[AdminLogs] fetch error:", error.message)
+        setFetchError(error.message)
+        setLoading(false)
+        return
+      }
+
+      setFetchError(null)
       setLogs(data || [])
       setTotal(count || 0)
       setLoading(false)
-    })()
+    }
+    run()
     return () => { cancelled = true }
   }, [page, roleFilter, actionFilter, dateFrom, dateTo, debouncedSearch, refreshKey])
 
@@ -328,6 +352,23 @@ export default function AdminLogs() {
             </div>
           </div>
         </div>
+
+        {/* FETCH ERROR BANNER */}
+        {fetchError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm shadow-sm">
+            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-red-500" />
+            <div className="flex-1">
+              <p className="font-semibold">Could not load activity logs</p>
+              <p className="text-xs text-red-500 mt-0.5">{fetchError}</p>
+            </div>
+            <button
+              onClick={() => { setFetchError(null); setRefreshKey(k => k + 1) }}
+              className="flex-shrink-0 text-xs font-semibold underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* STAT CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
