@@ -541,22 +541,6 @@ export default function ApplicantNotifications() {
                   <pre className="whitespace-pre-wrap break-words bg-amber-100 rounded-xl p-4 text-amber-900 font-mono text-sm">{diagInfo.message}</pre>
                 </div>
               </div>
-              {diagInfo.type === "no_column" && (
-                <div className="bg-white border-2 border-amber-200 rounded-xl p-6 space-y-4">
-                  <h4 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                    🔧 Quick Fix - Run in Supabase SQL Editor:
-                  </h4>
-                  <pre className="bg-gray-900 text-green-400 rounded-xl p-4 text-xs overflow-x-auto font-mono leading-relaxed">{`ALTER TABLE notifications
-  ADD COLUMN IF NOT EXISTS recipient_id UUID REFERENCES auth.users(id),
-  ADD COLUMN IF NOT EXISTS recipient_type TEXT DEFAULT 'applicant',
-  ADD COLUMN IF NOT EXISTS sender_type TEXT DEFAULT 'admin',
-  ADD COLUMN IF NOT EXISTS application_id UUID,
-  ADD COLUMN IF NOT EXISTS notification_type TEXT,
-  ADD COLUMN IF NOT EXISTS title TEXT,
-  ADD COLUMN IF NOT EXISTS message TEXT,
-  ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;`}</pre>
-                </div>
-              )}
               <button 
                 onClick={() => { idColumnRef.current = null; setLoading(true); fetchNotifications() }}
                 className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 px-6 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl"

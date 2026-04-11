@@ -20,15 +20,16 @@ import AdminApplications from "../pages/admin/Applications";
 import AdminApplicationDetail from "../pages/admin/AdminApplicationDetail";
 import AdminStaff from "../pages/admin/AdminStaff";
 import AdminAddApplicant from "../pages/admin/AddApplicant";
-import AdminLogs from "../pages/admin/AdminLogs";          // ← new
+import AdminLogs from "../pages/admin/AdminLogs";
 
 import StaffDashboard from "../pages/staff/Dashboard";
 import StaffApplications from "../pages/staff/Applications";
+import StaffApplicationDetail from "../pages/staff/StaffApplicationDetails";
 import StaffAppointments from "../pages/staff/Appointments";
 import StaffReports from "../pages/staff/Reports";
 import StaffNotifications from "../pages/staff/Notifications";
 import StaffSettings from "../pages/staff/Settings";
-
+import StaffManualApplication from "../pages/staff/ManualApplications";
 
 function ProtectedRoute({ children, allowedRoles }) {
   const [role,    setRole]    = useState(null);
@@ -84,12 +85,14 @@ export default function AppRoutes() {
         <Route path="/applicant/settings"      element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantSettings /></ProtectedRoute>} />
 
         {/* ── Staff ───────────────────────────────────────────────────── */}
-        <Route path="/staff/dashboard"     element={<ProtectedRoute allowedRoles={["staff"]}><StaffDashboard /></ProtectedRoute>} />
-        <Route path="/staff/applications"  element={<ProtectedRoute allowedRoles={["staff"]}><StaffApplications /></ProtectedRoute>} />
-        <Route path="/staff/appointments"  element={<ProtectedRoute allowedRoles={["staff"]}><StaffAppointments /></ProtectedRoute>} />
-        <Route path="/staff/reports"       element={<ProtectedRoute allowedRoles={["staff"]}><StaffReports /></ProtectedRoute>} />
-        <Route path="/staff/notifications" element={<ProtectedRoute allowedRoles={["staff"]}><StaffNotifications /></ProtectedRoute>} />
-        <Route path="/staff/settings"      element={<ProtectedRoute allowedRoles={["staff"]}><StaffSettings /></ProtectedRoute>} />
+        <Route path="/staff/dashboard"          element={<ProtectedRoute allowedRoles={["staff"]}><StaffDashboard /></ProtectedRoute>} />
+        <Route path="/staff/applications"       element={<ProtectedRoute allowedRoles={["staff"]}><StaffApplications /></ProtectedRoute>} />
+        <Route path="/staff/applications/:id"   element={<ProtectedRoute allowedRoles={["staff"]}><StaffApplicationDetail /></ProtectedRoute>} />
+        <Route path="/staff/appointments"       element={<ProtectedRoute allowedRoles={["staff"]}><StaffAppointments /></ProtectedRoute>} />
+        <Route path="/staff/reports"            element={<ProtectedRoute allowedRoles={["staff"]}><StaffReports /></ProtectedRoute>} />
+        <Route path="/staff/notifications"      element={<ProtectedRoute allowedRoles={["staff"]}><StaffNotifications /></ProtectedRoute>} />
+        <Route path="/staff/settings"           element={<ProtectedRoute allowedRoles={["staff"]}><StaffSettings /></ProtectedRoute>} />
+        <Route path="/staff/manual-application" element={<ProtectedRoute allowedRoles={["staff"]}><StaffManualApplication /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );

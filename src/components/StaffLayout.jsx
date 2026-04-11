@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabaseClient"
 import { logActivity } from "../lib/Logger"
 import {
   Home, ClipboardList, Calendar, BarChart3, Bell, LogOut,
-  ChevronLeft, ChevronRight, Settings
+  ChevronLeft, ChevronRight, Settings, FilePlus
 } from "lucide-react"
 
 export default function StaffLayout({ children, backPath, backLabel }) {
@@ -24,47 +24,37 @@ export default function StaffLayout({ children, backPath, backLabel }) {
     localStorage.setItem("staff_sidebar", JSON.stringify(collapsed))
   }, [collapsed])
 
+  useEffect(() => {
+    const loadNotifications = async () => {
+      const { data } = await supabase
+        .from("notifications")
+        .select("*, profiles!notifications_sender_id_fkey(full_name)")
+        .eq("recipient_type", "staff")
+        .eq("sender_type", "applicant")
+        .order("created_at", { ascending: false })
+        .limit(50)
 
+      const all = data || []
+      const unread = all.filter(n => !n.is_read)
+      setNotifications(unread.slice(0, 10))
+      setUnreadCount(unread.length)
+    }
 
-useEffect(() => {
-  const loadNotifications = async () => {
-    const { data } = await supabase
-      .from("notifications")
-      .select("*, profiles!notifications_sender_id_fkey(full_name)")
-      .eq("recipient_type", "staff")
-      .eq("sender_type", "applicant")
-      .order("created_at", { ascending: false })
-      .limit(50)
+    loadNotifications()
 
-    const all = data || []
-    const unread = all.filter(n => !n.is_read)
+    const channel = supabase
+      .channel("staff-notifications-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => loadNotifications())
+      .subscribe()
 
-    setNotifications(unread.slice(0, 10))
-    setUnreadCount(unread.length)
-  }
+    const handler = (e) => setUnreadCount(e.detail.count)
+    window.addEventListener("staffUnreadCount", handler)
 
-  // ✅ initial load
-  loadNotifications()
-
-  // ✅ realtime subscription
-  const channel = supabase
-    .channel("staff-notifications-realtime")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "notifications" },
-      () => loadNotifications()
-    )
-    .subscribe()
-
-  // ✅ custom event listener
-  const handler = (e) => setUnreadCount(e.detail.count)
-  window.addEventListener("staffUnreadCount", handler)
-
-  return () => {
-    supabase.removeChannel(channel)
-    window.removeEventListener("staffUnreadCount", handler)
-  }
-}, [])
+    return () => {
+      supabase.removeChannel(channel)
+      window.removeEventListener("staffUnreadCount", handler)
+    }
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -130,12 +120,13 @@ useEffect(() => {
   }
 
   const menuItems = [
-    { path: "/staff/dashboard", icon: Home, label: "Home" },
-    { path: "/staff/applications", icon: ClipboardList, label: "Applications" },
-    { path: "/staff/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/staff/reports", icon: BarChart3, label: "Reports" },
-    { path: "/staff/notifications", icon: Bell, label: "Notifications" },
-    { path: "/staff/settings",      icon: Settings,     label: "Settings" },
+    { path: "/staff/dashboard",           icon: Home,          label: "Dashboard" },
+    { path: "/staff/applications",        icon: ClipboardList, label: "Applications" },
+    { path: "/staff/appointments",        icon: Calendar,      label: "Appointments" },
+    { path: "/staff/reports",             icon: BarChart3,     label: "Reports" },
+    { path: "/staff/manual-application",  icon: FilePlus,      label: "Manual Entry" },
+    { path: "/staff/notifications",       icon: Bell,          label: "Notifications" },
+    { path: "/staff/settings",            icon: Settings,      label: "Settings" },
   ]
 
   return (
@@ -169,7 +160,7 @@ useEffect(() => {
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {menuItems.map((item) => {
             const Icon = item.icon
-            const isActive = location.pathname === item.path
+            const isActive = location.pathname.startsWith(item.path)
             const isBell = item.path === "/staff/notifications"
             return (
               <button
@@ -181,7 +172,6 @@ useEffect(() => {
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 {!collapsed && <span>{item.label}</span>}
-                {/* ✅ Red badge on sidebar bell */}
                 {isBell && unreadCount > 0 && (
                   <span className={`absolute ${collapsed ? "top-0.5 right-0.5" : "right-3"} bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none`}>
                     {unreadCount > 99 ? "99+" : unreadCount}
@@ -213,11 +203,8 @@ useEffect(() => {
 
           <div className="flex items-center gap-4 relative" ref={dropdownRef}>
 
-            {/* 🔔 Bell Button */}
-            <button
-              onClick={() => setShowDropdown(prev => !prev)}
-              className="relative p-1"
-            >
+            {/* Bell Button */}
+            <button onClick={() => setShowDropdown(prev => !prev)} className="relative p-1">
               <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none">
@@ -226,27 +213,21 @@ useEffect(() => {
               )}
             </button>
 
-            {/* 🔽 Bell Dropdown */}
+            {/* Bell Dropdown */}
             {showDropdown && (
               <div className="absolute right-0 top-9 w-80 bg-white shadow-xl rounded-xl border border-gray-100 z-50 overflow-hidden">
-
-                {/* Dropdown Header */}
                 <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
                   <div>
                     <p className="text-sm font-bold text-gray-800">🔔 Notifications</p>
                     <p className="text-xs text-gray-400">{unreadCount} unread</p>
                   </div>
                   {unreadCount > 0 && (
-                    <button
-                      onClick={markAllAsRead}
-                      className="text-xs text-orange-500 hover:underline font-medium"
-                    >
+                    <button onClick={markAllAsRead} className="text-xs text-orange-500 hover:underline font-medium">
                       Mark all read
                     </button>
                   )}
                 </div>
 
-                {/* Dropdown List */}
                 {notifications.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 text-sm">
                     <p className="text-2xl mb-2">🔔</p>
@@ -265,9 +246,7 @@ useEffect(() => {
                           <p className="text-xs font-semibold text-gray-800 truncate">{notif.title}</p>
                           <p className="text-xs text-gray-500 truncate mt-0.5">{notif.message}</p>
                           {notif.profiles?.full_name && (
-                            <p className="text-xs text-orange-400 mt-0.5 truncate">
-                              👤 {notif.profiles.full_name}
-                            </p>
+                            <p className="text-xs text-orange-400 mt-0.5 truncate">👤 {notif.profiles.full_name}</p>
                           )}
                           <p className="text-xs text-gray-400 mt-1">{formatTime(notif.created_at)}</p>
                         </div>
@@ -276,7 +255,6 @@ useEffect(() => {
                   </div>
                 )}
 
-                {/* View All */}
                 <div className="border-t">
                   <button
                     onClick={() => { setShowDropdown(false); navigate("/staff/notifications") }}

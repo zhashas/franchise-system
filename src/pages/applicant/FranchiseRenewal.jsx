@@ -100,12 +100,15 @@ export default function FranchiseRenewal() {
     { label: "Approved", done: lastApplication?.status === "approved" },
   ]
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-orange-500 font-semibold">Loading...</div>
-
   return (
     <ApplicantLayout>
-      <div className="max-w-7xl mx-auto">
-
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-4">
+          <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
+          <p className="text-sm font-medium">Loading renewal details…</p>
+        </div>
+      ) : (
+        <>
         {/* Header */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border-t-4 border-orange-500">
           <h1 className="text-xl font-bold text-blue-900 uppercase">🔄 Franchise Renewal</h1>
@@ -277,7 +280,8 @@ export default function FranchiseRenewal() {
             </div>
           </div>
         </div>
-      </div>
+        </>
+      )}
     </ApplicantLayout>
   )
 }

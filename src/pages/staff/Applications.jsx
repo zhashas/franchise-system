@@ -2,200 +2,166 @@ import { useEffect, useState } from "react"
 import { supabase } from "../../lib/supabaseClient"
 import { useNavigate } from "react-router-dom"
 import StaffLayout from "../../components/StaffLayout"
-import { notifyApplicant } from "../../lib/notifications"
 
-/* DESIGN TOKENS */
-const tokens = {
-  primary:      "#FECE14",
-  border:       "#E5E7EB",
-  paper:        "#FFF7ED",
-  paperBorder:  "#FED7AA",
-}
-
-export default function AdminApplications() {
+export default function StaffApplications() {
   const [applications, setApplications] = useState([])
   const [loading,      setLoading]      = useState(true)
   const [filter,       setFilter]       = useState("all")
+  const [searchQ,      setSearchQ]      = useState("")
   const navigate = useNavigate()
 
-  const fetchApplications = async () => {
-    try {
-      const { data } = await supabase
-        .from("applications")
-        .select("*, profiles(full_name, email, phone)")
-        .order("submitted_at", { ascending: false })
-      setApplications(data || [])
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
+    const fetchApplications = async () => {
+      try {
+        const { data } = await supabase
+          .from("applications")
+          .select("*, profiles(full_name, email, phone)")
+          .order("submitted_at", { ascending: false })
+        setApplications(data || [])
+      } finally {
+        setLoading(false)
+      }
+    }
     fetchApplications()
   }, [])
 
-  // ── Approve ───────────────────────────────────────────────────────────────
-  const handleApprove = async (application) => {
-    try {
-      const { error } = await supabase
-        .from("applications")
-        .update({ status: "approved" })
-        .eq("id", application.id)
-      if (error) throw error
-
-      await notifyApplicant({
-        recipientId:       application.applicant_id,
-        title:             "✅ Application Approved",
-        message:           "Congratulations! Your franchise application has been approved. Please visit the Municipal Hall to claim your franchise permit.",
-        applicationId:     application.id,
-        notificationType:  "status_approved",
-        senderType:        "staff",
-      })
-
-      fetchApplications()
-    } catch (err) {
-      console.error("Approve error:", err.message)
-    }
-  }
-
-  // ── Reject ────────────────────────────────────────────────────────────────
-  const handleReject = async (application) => {
-    try {
-      const { error } = await supabase
-        .from("applications")
-        .update({ status: "rejected" })
-        .eq("id", application.id)
-      if (error) throw error
-
-      await notifyApplicant({
-        recipientId:       application.applicant_id,
-        title:             "❌ Application Rejected",
-        message:           "Your franchise application has been rejected. Please contact the Franchising Unit for more information.",
-        applicationId:     application.id,
-        notificationType:  "status_rejected",
-        senderType:        "staff",
-      })
-
-      fetchApplications()
-    } catch (err) {
-      console.error("Reject error:", err.message)
-    }
-  }
-
   const statusColor = (status) => {
-    if (status === "approved")     return "bg-green-100 text-green-700"
-    if (status === "rejected")     return "bg-red-100 text-red-700"
-    if (status === "under_review") return "bg-blue-100 text-blue-700"
-    if (status === "for_release")  return "bg-purple-100 text-purple-700"
-    return "bg-yellow-100 text-yellow-700"
+    if (status === "approved")     return "bg-green-100 text-green-700 border-green-200"
+    if (status === "rejected")     return "bg-red-100 text-red-700 border-red-200"
+    if (status === "under_review") return "bg-blue-100 text-blue-700 border-blue-200"
+    if (status === "for_release")  return "bg-purple-100 text-purple-700 border-purple-200"
+    return "bg-yellow-100 text-yellow-700 border-yellow-200"
   }
-
-  const filtered =
-    filter === "all"
-      ? applications
-      : applications.filter(a => a.status === filter)
 
   const stats = [
-    { key: "all",          label: "Total",        value: applications.length,                                            color: "#000",    bg: "#F3F4F6" },
-    { key: "pending",      label: "Pending",       value: applications.filter(a => a.status === "pending").length,       color: "#D97706", bg: "#FFFBEB" },
-    { key: "approved",     label: "Approved",      value: applications.filter(a => a.status === "approved").length,      color: "#16A34A", bg: "#ECFDF5" },
-    { key: "rejected",     label: "Rejected",      value: applications.filter(a => a.status === "rejected").length,      color: "#DC2626", bg: "#FEF2F2" },
-    { key: "for_release",  label: "For Release",   value: applications.filter(a => a.status === "for_release").length,   color: "#7C3AED", bg: "#F5F3FF" },
+    { key: "all",          label: "Total",        value: applications.length,                                           color: "#374151", bg: "#F3F4F6", border: "#D1D5DB" },
+    { key: "pending",      label: "Pending",       value: applications.filter(a => a.status === "pending").length,      color: "#D97706", bg: "#FFFBEB", border: "#FDE68A" },
+    { key: "under_review", label: "Under Review",  value: applications.filter(a => a.status === "under_review").length, color: "#2563EB", bg: "#EFF6FF", border: "#BFDBFE" },
+    { key: "approved",     label: "Approved",      value: applications.filter(a => a.status === "approved").length,     color: "#16A34A", bg: "#F0FDF4", border: "#BBF7D0" },
+    { key: "rejected",     label: "Rejected",      value: applications.filter(a => a.status === "rejected").length,     color: "#DC2626", bg: "#FEF2F2", border: "#FECACA" },
+    { key: "for_release",  label: "For Release",   value: applications.filter(a => a.status === "for_release").length,  color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE" },
   ]
+
+  const filtered = applications
+    .filter(a => filter === "all" || a.status === filter)
+    .filter(a => {
+      if (!searchQ.trim()) return true
+      const q = searchQ.toLowerCase()
+      return (
+        a.profiles?.full_name?.toLowerCase().includes(q) ||
+        a.profiles?.email?.toLowerCase().includes(q) ||
+        a.details?.plate_no?.toLowerCase().includes(q) ||
+        a.type?.toLowerCase().includes(q)
+      )
+    })
 
   return (
     <StaffLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-5">
 
         {/* HEADER */}
-        <div
-          className="rounded-xl p-6 border"
-          style={{ background: tokens.paper, border: `1px solid ${tokens.paperBorder}` }}
-        >
-          <h1 className="text-xl font-bold text-black">APPLICATIONS</h1>
-          <p className="text-sm mt-1 text-black">Manage and process all submitted franchise applications.</p>
+        <div className="rounded-xl p-5 border bg-orange-50 border-orange-200">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">📋 Applications</h1>
+              <p className="text-sm mt-1 text-gray-500">Review all submitted franchise applications.</p>
+            </div>
+            {/* VIEW-ONLY BADGE */}
+            <span className="inline-flex items-center gap-1.5 text-xs bg-yellow-100 text-yellow-800 border border-yellow-300 px-3 py-1.5 rounded-full font-semibold">
+              👁️ View Only — Status changes require Admin
+            </span>
+          </div>
         </div>
 
-        {/* STATS / FILTER */}
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
+        {/* STATS */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           {stats.map(stat => (
             <div
               key={stat.key}
               onClick={() => setFilter(stat.key)}
-              className={`p-4 rounded-lg border cursor-pointer transition ${filter === stat.key ? "ring-2 ring-black scale-[1.02]" : "hover:scale-[1.01]"}`}
-              style={{ background: stat.bg, borderColor: stat.color }}
+              className={`p-4 rounded-xl border-2 cursor-pointer transition ${filter === stat.key ? "ring-2 ring-offset-1 ring-orange-400 scale-[1.02]" : "hover:scale-[1.01]"}`}
+              style={{ background: stat.bg, borderColor: stat.border }}
             >
-              <p className="text-2xl font-semibold" style={{ color: stat.color }}>{stat.value}</p>
-              <p className="text-xs mt-1 font-medium" style={{ color: stat.color }}>{stat.label}</p>
+              <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+              <p className="text-xs mt-1 font-semibold" style={{ color: stat.color }}>{stat.label}</p>
             </div>
           ))}
         </div>
 
+        {/* SEARCH */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
+          <span className="text-lg text-gray-400">⌕</span>
+          <input
+            type="text"
+            placeholder="Search by name, email, plate number, type…"
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+            className="flex-1 text-sm outline-none bg-transparent text-gray-700 placeholder-gray-400"
+          />
+          {searchQ && (
+            <button onClick={() => setSearchQ("")} className="text-xs bg-gray-100 px-3 py-1 rounded text-gray-500 font-semibold hover:bg-gray-200">
+              Clear
+            </button>
+          )}
+        </div>
+
         {/* LIST */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {loading ? (
-            <div className="text-center py-12 text-sm">Loading...</div>
+            <div className="text-center py-16 text-sm text-gray-400">
+              <p className="text-3xl mb-2 animate-pulse">⏳</p>
+              Loading applications…
+            </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
               <p className="text-3xl mb-2">📄</p>
-              <p className="text-gray-400">No applications found</p>
+              <p className="text-gray-400 text-sm">No applications found</p>
             </div>
           ) : filtered.map(app => (
             <div
               key={app.id}
               onClick={() => navigate(`/staff/applications/${app.id}`)}
-              className="group border rounded-xl p-4 bg-white hover:bg-gray-50 transition cursor-pointer"
-              style={{ borderColor: tokens.border }}
+              className="group border border-gray-200 rounded-xl p-4 bg-white hover:bg-orange-50 hover:border-orange-200 transition cursor-pointer shadow-sm"
             >
-              <div className="flex justify-between gap-4">
+              <div className="flex justify-between gap-4 items-center">
                 {/* LEFT */}
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <p className="font-semibold text-black">{app.profiles?.full_name || "Unknown"}</p>
-                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColor(app.status)}`}>
+                    <p className="font-semibold text-gray-900">{app.profiles?.full_name || "Unknown"}</p>
+                    <span className={`px-2.5 py-0.5 text-xs rounded-full font-semibold border ${statusColor(app.status)}`}>
                       {app.status.replace(/_/g, " ")}
                     </span>
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600 font-medium capitalize">
+                      {app.type}
+                    </span>
                   </div>
-                  <div className="mt-1 text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
+                  <div className="mt-1.5 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
                     <span>📧 {app.profiles?.email || "—"}</span>
                     <span>📞 {app.profiles?.phone || "—"}</span>
                     <span>🚗 {app.details?.plate_no || "—"}</span>
-                    <span>📦 {app.type}</span>
                     <span>🗓 {new Date(app.submitted_at || app.created_at).toLocaleDateString("en-PH")}</span>
                   </div>
                 </div>
 
-                {/* ACTIONS */}
-                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                {/* VIEW BUTTON */}
+                <div onClick={e => e.stopPropagation()}>
                   <button
                     onClick={() => navigate(`/staff/applications/${app.id}`)}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-md"
-                    style={{ background: tokens.primary }}
+                    className="px-4 py-1.5 text-xs font-bold rounded-lg bg-orange-400 hover:bg-orange-500 text-white transition"
                   >
-                    View
+                    View →
                   </button>
-
-                  {app.status === "pending" && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(app)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 transition"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(app)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-500 text-white hover:bg-red-600 transition"
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
+
+        {!loading && (
+          <p className="text-right text-xs text-gray-400">
+            Showing <strong>{filtered.length}</strong> of <strong>{applications.length}</strong> applications
+          </p>
+        )}
 
       </div>
     </StaffLayout>

@@ -9,6 +9,7 @@ export default function ApplicantAppointments() {
   useEffect(() => {
     const fetchAppointments = async () => {
       const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
       const { data } = await supabase
         .from("appointments")
         .select("*, applications(type)")
@@ -27,8 +28,7 @@ export default function ApplicantAppointments() {
     return "bg-yellow-100 text-yellow-700"
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-orange-500 font-semibold">Loading...</div>
-
+  // ✅ Always render inside ApplicantLayout — no more white screen
   return (
     <ApplicantLayout>
       <div className="max-w-7xl mx-auto">
@@ -37,61 +37,69 @@ export default function ApplicantAppointments() {
           <p className="text-gray-500 text-sm">View your scheduled appointments with the franchise office</p>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {[
-            { label: "Upcoming", value: appointments.filter(a => a.status === "confirmed").length, color: "border-blue-500" },
-            { label: "Completed", value: appointments.filter(a => a.status === "completed").length, color: "border-green-500" },
-            { label: "Cancelled / Rescheduled", value: appointments.filter(a => a.status === "cancelled").length, color: "border-red-500" },
-          ].map((stat, i) => (
-            <div key={i} className={`bg-white rounded-xl p-4 shadow-sm border-t-4 ${stat.color}`}>
-              <p className="text-2xl font-bold text-blue-900">{stat.value}</p>
-              <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {appointments.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-400">
-            <p className="text-5xl mb-3">📅</p>
-            <p className="font-medium">No appointments scheduled yet.</p>
-            <p className="text-sm mt-1">The admin will schedule an appointment once your application is under review.</p>
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-4">
+            <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
+            <p className="text-sm font-medium">Loading appointments…</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr className="text-left text-gray-500">
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3">Time</th>
-                  <th className="px-6 py-3">Purpose</th>
-                  <th className="px-6 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {appointments.map((apt) => (
-                  <tr key={apt.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-6 py-4 text-gray-700">
-                      {new Date(apt.scheduled_date).toLocaleDateString("en-PH", { month: "numeric", day: "numeric", year: "numeric" })}
-                    </td>
-                    <td className="px-6 py-4 text-gray-700">{apt.scheduled_time}</td>
-                    <td className="px-6 py-4 capitalize text-blue-900 font-medium">
-                      {apt.applications?.type ? `Franchise ${apt.applications.type}` : "—"}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColor(apt.status)}`}>
-                        {apt.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="px-6 py-4 bg-gray-50 border-t text-sm text-gray-500">
-              💡 Need help? Contact the Tricycle Franchising Unit for schedule changes.
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {[
+                { label: "Upcoming",               value: appointments.filter(a => a.status === "confirmed").length, color: "border-blue-500" },
+                { label: "Completed",              value: appointments.filter(a => a.status === "completed").length, color: "border-green-500" },
+                { label: "Cancelled / Rescheduled", value: appointments.filter(a => a.status === "cancelled").length, color: "border-red-500" },
+              ].map((stat, i) => (
+                <div key={i} className={`bg-white rounded-xl p-4 shadow-sm border-t-4 ${stat.color}`}>
+                  <p className="text-2xl font-bold text-blue-900">{stat.value}</p>
+                  <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
+                </div>
+              ))}
             </div>
-          </div>
+
+            {appointments.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-400">
+                <p className="text-5xl mb-3">📅</p>
+                <p className="font-medium">No appointments scheduled yet.</p>
+                <p className="text-sm mt-1">The admin will schedule an appointment once your application is under review.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr className="text-left text-gray-500">
+                      <th className="px-6 py-3">Date</th>
+                      <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Purpose</th>
+                      <th className="px-6 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appointments.map((apt) => (
+                      <tr key={apt.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="px-6 py-4 text-gray-700">
+                          {new Date(apt.scheduled_date).toLocaleDateString("en-PH", { month: "numeric", day: "numeric", year: "numeric" })}
+                        </td>
+                        <td className="px-6 py-4 text-gray-700">{apt.scheduled_time}</td>
+                        <td className="px-6 py-4 capitalize text-blue-900 font-medium">
+                          {apt.applications?.type ? `Franchise ${apt.applications.type}` : "—"}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColor(apt.status)}`}>
+                            {apt.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-6 py-4 bg-gray-50 border-t text-sm text-gray-500">
+                  💡 Need help? Contact the Tricycle Franchising Unit for schedule changes.
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </ApplicantLayout>
