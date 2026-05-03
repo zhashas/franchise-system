@@ -3,9 +3,8 @@ import { supabase } from "../../lib/supabaseClient"
 import AdminLayout from "../../components/AdminLayout"
 import {
   Activity, Search, X, RefreshCw, Filter, Download,
-  LogIn, LogOut, FileText, Calendar, Settings, UserPlus,
-  ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, Clock,
-  Globe, User,
+  LogIn, LogOut, AlertTriangle, ChevronDown, ChevronUp,
+  Clock, Globe, User,
 } from "lucide-react"
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
@@ -16,42 +15,19 @@ const ROLES = [
   { value: "applicant", label: "Applicant"  },
 ]
 
+// Only login and logout are tracked in this log view
 const ACTION_TYPES = [
-  { value: "all",                   label: "All Actions"           },
-  { value: "login",                 label: "Login"                 },
-  { value: "logout",                label: "Logout"                },
-  { value: "application_submitted", label: "Application Submitted" },
-  { value: "application_updated",   label: "Application Updated"   },
-  { value: "appointment_created",   label: "Appointment Created"   },
-  { value: "appointment_updated",   label: "Appointment Updated"   },
-  { value: "profile_updated",       label: "Profile Updated"       },
-  { value: "password_changed",      label: "Password Changed"      },
-  { value: "staff_promoted",        label: "Staff Promoted"        },
-  { value: "staff_removed",         label: "Staff Removed"         },
-  { value: "applicant_created",     label: "Applicant Created"     },
-  { value: "applicant_deleted",     label: "Applicant Deleted"     },
-  { value: "document_uploaded",     label: "Document Uploaded"     },
-  { value: "status_changed",        label: "Status Changed"        },
+  { value: "all",    label: "All Events" },
+  { value: "login",  label: "Login"      },
+  { value: "logout", label: "Logout"     },
 ]
 
 const PAGE_SIZE = 20
 
 /* ── Action meta ──────────────────────────────────────────────────────────── */
 const ACTION_META = {
-  login:                 { icon: LogIn,         color: "text-green-600",  bg: "bg-green-50",   border: "border-green-200",  badge: "bg-green-100 text-green-700"   },
-  logout:                { icon: LogOut,        color: "text-gray-500",   bg: "bg-gray-50",    border: "border-gray-200",   badge: "bg-gray-100 text-gray-600"     },
-  application_submitted: { icon: FileText,      color: "text-blue-600",   bg: "bg-blue-50",    border: "border-blue-200",   badge: "bg-blue-100 text-blue-700"     },
-  application_updated:   { icon: FileText,      color: "text-indigo-600", bg: "bg-indigo-50",  border: "border-indigo-200", badge: "bg-indigo-100 text-indigo-700" },
-  appointment_created:   { icon: Calendar,      color: "text-purple-600", bg: "bg-purple-50",  border: "border-purple-200", badge: "bg-purple-100 text-purple-700" },
-  appointment_updated:   { icon: Calendar,      color: "text-purple-500", bg: "bg-purple-50",  border: "border-purple-200", badge: "bg-purple-100 text-purple-700" },
-  profile_updated:       { icon: Settings,      color: "text-amber-600",  bg: "bg-amber-50",   border: "border-amber-200",  badge: "bg-amber-100 text-amber-700"   },
-  password_changed:      { icon: ShieldCheck,   color: "text-orange-600", bg: "bg-orange-50",  border: "border-orange-200", badge: "bg-orange-100 text-orange-700" },
-  staff_promoted:        { icon: UserPlus,      color: "text-teal-600",   bg: "bg-teal-50",    border: "border-teal-200",   badge: "bg-teal-100 text-teal-700"     },
-  staff_removed:         { icon: AlertTriangle, color: "text-red-600",    bg: "bg-red-50",     border: "border-red-200",    badge: "bg-red-100 text-red-700"       },
-  applicant_created:     { icon: UserPlus,      color: "text-sky-600",    bg: "bg-sky-50",     border: "border-sky-200",    badge: "bg-sky-100 text-sky-700"       },
-  applicant_deleted:     { icon: AlertTriangle, color: "text-red-500",    bg: "bg-red-50",     border: "border-red-200",    badge: "bg-red-100 text-red-700"       },
-  document_uploaded:     { icon: FileText,      color: "text-violet-600", bg: "bg-violet-50",  border: "border-violet-200", badge: "bg-violet-100 text-violet-700" },
-  status_changed:        { icon: Activity,      color: "text-rose-600",   bg: "bg-rose-50",    border: "border-rose-200",   badge: "bg-rose-100 text-rose-700"     },
+  login:  { icon: LogIn,  color: "text-green-600", bg: "bg-green-50",  border: "border-green-200",  badge: "bg-green-100 text-green-700"  },
+  logout: { icon: LogOut, color: "text-gray-500",  bg: "bg-gray-50",   border: "border-gray-200",   badge: "bg-gray-100 text-gray-600"    },
 }
 
 const getActionMeta = (action) =>
@@ -74,14 +50,14 @@ const fmtRelative = (d) => {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`
   return `${Math.floor(s / 86400)}d ago`
 }
-const actionLabel = (action) =>
-  ACTION_TYPES.find(a => a.value === action)?.label || action?.replace(/_/g, " ") || "—"
 
 /* ── Log Row ──────────────────────────────────────────────────────────────── */
 function LogRow({ log, expanded, onToggle }) {
   const meta     = getActionMeta(log.action)
   const Icon     = meta.icon
   const hasExtra = log.details || (log.metadata && Object.keys(log.metadata).length > 0)
+
+  const actionLabel = log.action === "login" ? "Login" : log.action === "logout" ? "Logout" : log.action
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-all ${meta.border} mb-2 shadow-sm`}>
@@ -103,7 +79,7 @@ function LogRow({ log, expanded, onToggle }) {
               {log.role || "—"}
             </span>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${meta.badge}`}>
-              {actionLabel(log.action)}
+              {actionLabel}
             </span>
           </div>
           <div className="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -120,7 +96,7 @@ function LogRow({ log, expanded, onToggle }) {
           </div>
         </div>
 
-        {/* Timestamp (desktop) */}
+        {/* Timestamp */}
         <div className="text-right flex-shrink-0 hidden sm:block">
           <p className="text-xs font-semibold text-gray-700">{fmtDate(log.created_at)}</p>
           <p className="text-xs text-gray-400 flex items-center gap-1 justify-end mt-0.5">
@@ -158,7 +134,6 @@ function LogRow({ log, expanded, onToggle }) {
               </div>
             </div>
           )}
-          {/* Timestamp (mobile) */}
           <p className="sm:hidden text-xs text-gray-400">{fmtDate(log.created_at)} at {fmtTime(log.created_at)}</p>
         </div>
       )}
@@ -171,7 +146,7 @@ function EmptyState({ hasFilters, onClear }) {
   return (
     <div className="py-20 text-center">
       <p className="text-5xl mb-3">📋</p>
-      <p className="text-gray-500 font-semibold text-sm">No activity logs found</p>
+      <p className="text-gray-500 font-semibold text-sm">No login / logout logs found</p>
       {hasFilters ? (
         <>
           <p className="text-xs text-gray-400 mt-1">Try adjusting or clearing your filters.</p>
@@ -179,8 +154,8 @@ function EmptyState({ hasFilters, onClear }) {
         </>
       ) : (
         <p className="text-xs text-gray-400 mt-1">
-          Logs will appear here once users start performing actions.<br />
-          Make sure <code className="bg-gray-100 px-1 rounded">logActivity()</code> is called in your login, logout, and other event handlers.
+          Logs will appear here once users sign in or out.<br />
+          Make sure <code className="bg-gray-100 px-1 rounded">logActivity()</code> is called in your login and logout handlers.
         </p>
       )}
     </div>
@@ -203,7 +178,7 @@ export default function AdminLogs() {
   const [search,          setSearch]          = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [roleFilter,      setRoleFilter]      = useState("all")
-  const [actionFilter,    setActionFilter]    = useState("all")
+  const [actionFilter,    setActionFilter]    = useState("all")   // "all" | "login" | "logout"
   const [dateFrom,        setDateFrom]        = useState("")
   const [dateTo,          setDateTo]          = useState("")
 
@@ -216,11 +191,11 @@ export default function AdminLogs() {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => setDebouncedSearch(val), 300)
   }
-  const handleRoleChange    = (v) => { setRoleFilter(v);   setPage(0) }
-  const handleActionChange  = (v) => { setActionFilter(v); setPage(0) }
-  const handleDateFrom      = (v) => { setDateFrom(v);     setPage(0) }
-  const handleDateTo        = (v) => { setDateTo(v);       setPage(0) }
-  const handleClearFilters  = () => {
+  const handleRoleChange   = (v) => { setRoleFilter(v);   setPage(0) }
+  const handleActionChange = (v) => { setActionFilter(v); setPage(0) }
+  const handleDateFrom     = (v) => { setDateFrom(v);     setPage(0) }
+  const handleDateTo       = (v) => { setDateTo(v);       setPage(0) }
+  const handleClearFilters = () => {
     setRoleFilter("all"); setActionFilter("all")
     setDateFrom(""); setDateTo("")
     setSearch(""); setDebouncedSearch("")
@@ -233,36 +208,40 @@ export default function AdminLogs() {
     const run = async () => {
       setLoading(true)
 
-      // Guard: ensure the auth session is valid before querying.
-      // After a tab-switch or navigation Supabase may be mid-refresh;
-      // getSession() waits for that to settle so we always get a live token.
-      const { data: { session } } = await supabase.auth.getSession()
+      // Use getUser() — NOT getSession() — because getSession() reads the
+      // localStorage cache and can return null while Supabase is still in the
+      // middle of refreshing an expired token (triggered by tab-focus events).
+      // getUser() makes an actual server call and waits for any ongoing refresh
+      // to settle, so it never falsely reports the session as missing.
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (cancelled) return
-      if (!session) {
+      if (userError || !user) {
         setFetchError("Your session has expired. Please refresh the page.")
         setLoading(false)
         return
       }
 
+      // Always restrict to login and logout actions only
       let query = supabase
         .from("activity_logs")
         .select("*", { count: "exact" })
+        .in("action", ["login", "logout"])          // ← hard filter: only login/logout
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
-      if (roleFilter   !== "all") query = query.eq("role",   roleFilter)
+      if (roleFilter !== "all")   query = query.eq("role",   roleFilter)
       if (actionFilter !== "all") query = query.eq("action", actionFilter)
       if (dateFrom)               query = query.gte("created_at", dateFrom + "T00:00:00")
       if (dateTo)                 query = query.lte("created_at", dateTo   + "T23:59:59")
       if (debouncedSearch.trim())
-        query = query.or(`user_name.ilike.%${debouncedSearch}%,user_email.ilike.%${debouncedSearch}%,details.ilike.%${debouncedSearch}%,ip_address.ilike.%${debouncedSearch}%`)
+        query = query.or(
+          `user_name.ilike.%${debouncedSearch}%,user_email.ilike.%${debouncedSearch}%,ip_address.ilike.%${debouncedSearch}%`
+        )
 
       const { data, count, error } = await query
       if (cancelled) return
 
       if (error) {
-        // Don't wipe existing logs on a transient error – keep stale data
-        // visible and surface a dismissible banner instead.
         console.error("[AdminLogs] fetch error:", error.message)
         setFetchError(error.message)
         setLoading(false)
@@ -284,10 +263,11 @@ export default function AdminLogs() {
     let query = supabase
       .from("activity_logs")
       .select("*")
+      .in("action", ["login", "logout"])
       .order("created_at", { ascending: false })
       .limit(5000)
 
-    if (roleFilter   !== "all") query = query.eq("role",   roleFilter)
+    if (roleFilter !== "all")   query = query.eq("role",   roleFilter)
     if (actionFilter !== "all") query = query.eq("action", actionFilter)
     if (dateFrom)               query = query.gte("created_at", dateFrom + "T00:00:00")
     if (dateTo)                 query = query.lte("created_at", dateTo   + "T23:59:59")
@@ -299,29 +279,35 @@ export default function AdminLogs() {
     const rows = data.map(l => [
       fmtDate(l.created_at), fmtTime(l.created_at),
       l.user_name || "", l.user_email || "", l.role || "",
-      actionLabel(l.action), l.ip_address || "", l.details || "",
+      l.action === "login" ? "Login" : "Logout",
+      l.ip_address || "", l.details || "",
     ])
     const csv  = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
     const blob = new Blob([csv], { type: "text/csv" })
     const url  = URL.createObjectURL(blob)
-    const a    = Object.assign(document.createElement("a"), { href: url, download: `activity_logs_${new Date().toISOString().split("T")[0]}.csv` })
+    const a    = Object.assign(document.createElement("a"), {
+      href:     url,
+      download: `login_logout_logs_${new Date().toISOString().split("T")[0]}.csv`,
+    })
     a.click()
     URL.revokeObjectURL(url)
     setExporting(false)
   }
 
   /* ── Derived ── */
-  const totalPages       = Math.ceil(total / PAGE_SIZE)
+  const totalPages        = Math.ceil(total / PAGE_SIZE)
   const activeFilterCount = [roleFilter !== "all", actionFilter !== "all", !!dateFrom, !!dateTo, !!search].filter(Boolean).length
 
-  // Stats across current page
+  // Stats: count by role across current page
   const adminCount     = logs.filter(l => l.role === "admin").length
   const staffCount     = logs.filter(l => l.role === "staff").length
   const applicantCount = logs.filter(l => l.role === "applicant").length
+  const loginCount     = logs.filter(l => l.action === "login").length
+  const logoutCount    = logs.filter(l => l.action === "logout").length
 
   return (
     <AdminLayout>
-      <div className="max-w-5xl mx-auto space-y-5">
+      <div className="max-w-7xl mx-auto space-y-5">
 
         {/* HEADER */}
         <div className="rounded-xl p-5 border bg-slate-50 border-slate-200 shadow-sm">
@@ -331,8 +317,8 @@ export default function AdminLogs() {
                 <Activity className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Activity Logs</h1>
-                <p className="text-xs text-gray-500 mt-0.5">Track all system events across admin, staff, and applicant accounts.</p>
+                <h1 className="text-xl font-bold text-gray-900">Login / Logout Logs</h1>
+                <p className="text-xs text-gray-500 mt-0.5">Track sign-in and sign-out events across admin, staff, and applicant accounts.</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -371,14 +357,16 @@ export default function AdminLogs() {
         )}
 
         {/* STAT CARDS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
-            { label: "Total Logs",       value: total,         bg: "bg-slate-50",   border: "border-slate-200",  text: "text-slate-700"  },
-            { label: "Admin Events",     value: adminCount,    bg: "bg-orange-50",  border: "border-orange-200", text: "text-orange-700" },
-            { label: "Staff Events",     value: staffCount,    bg: "bg-purple-50",  border: "border-purple-200", text: "text-purple-700" },
-            { label: "Applicant Events", value: applicantCount,bg: "bg-sky-50",     border: "border-sky-200",    text: "text-sky-700"    },
+            { label: "Total Events",      value: total,         bg: "bg-slate-50",   border: "border-slate-200",  text: "text-slate-700"  },
+            { label: "Logins",            value: loginCount,    bg: "bg-green-50",   border: "border-green-200",  text: "text-green-700"  },
+            { label: "Logouts",           value: logoutCount,   bg: "bg-gray-50",    border: "border-gray-200",   text: "text-gray-700"   },
+            { label: "Admin Events",      value: adminCount,    bg: "bg-orange-50",  border: "border-orange-200", text: "text-orange-700" },
+            { label: "Staff Events",      value: staffCount,    bg: "bg-purple-50",  border: "border-purple-200", text: "text-purple-700" },
+            { label: "Applicant Events",  value: applicantCount, bg: "bg-sky-50",     border: "border-sky-200",    text: "text-sky-700"    },
           ].map((s, i) => (
-            <div key={i} className={`rounded-xl border p-4 ${s.bg} ${s.border} shadow-sm`}>
+            <div key={i} className={`rounded-l border p-2 ${s.bg} ${s.border} shadow-sm`}>
               <p className={`text-2xl font-bold ${s.text}`}>{s.value}</p>
               <p className={`text-xs mt-0.5 font-medium ${s.text} opacity-80`}>{s.label}</p>
             </div>
@@ -393,7 +381,7 @@ export default function AdminLogs() {
             <Search size={15} className="text-gray-400 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search name, email, IP address, or details…"
+              placeholder="Search by name, email, or IP address…"
               value={search}
               onChange={e => handleSearchChange(e.target.value)}
               className="flex-1 text-sm outline-none placeholder-gray-400 bg-transparent"
@@ -424,30 +412,53 @@ export default function AdminLogs() {
           {/* Expanded filters */}
           {showFilters && (
             <div className="px-4 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+
+              {/* Role filter */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Role</label>
-                <select value={roleFilter} onChange={e => handleRoleChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white">
+                <select
+                  value={roleFilter}
+                  onChange={e => handleRoleChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                >
                   {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
+
+              {/* Event type filter (login / logout) */}
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Action Type</label>
-                <select value={actionFilter} onChange={e => handleActionChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white">
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Event Type</label>
+                <select
+                  value={actionFilter}
+                  onChange={e => handleActionChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                >
                   {ACTION_TYPES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                 </select>
               </div>
+
+              {/* Date From */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Date From</label>
-                <input type="date" value={dateFrom} onChange={e => handleDateFrom(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white" />
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => handleDateFrom(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                />
               </div>
+
+              {/* Date To */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Date To</label>
-                <input type="date" value={dateTo} onChange={e => handleDateTo(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white" />
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => handleDateTo(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                />
               </div>
+
               {activeFilterCount > 0 && (
                 <div className="sm:col-span-2 md:col-span-4 flex justify-end">
                   <button onClick={handleClearFilters} className="text-xs text-red-500 hover:underline font-semibold">
@@ -463,7 +474,7 @@ export default function AdminLogs() {
             {loading ? (
               <div className="py-16 text-center text-sm text-gray-400">
                 <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-gray-300" />
-                Loading activity logs…
+                Loading logs…
               </div>
             ) : logs.length === 0 ? (
               <EmptyState hasFilters={activeFilterCount > 0} onClear={handleClearFilters} />
@@ -486,13 +497,19 @@ export default function AdminLogs() {
                 Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of <strong>{total}</strong> logs
               </p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(p - 1, 0))} disabled={page === 0}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition">
+                <button
+                  onClick={() => setPage(p => Math.max(p - 1, 0))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition"
+                >
                   ← Prev
                 </button>
                 <span className="text-xs text-gray-500 font-medium">{page + 1} / {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(p + 1, totalPages - 1))} disabled={page >= totalPages - 1}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition">
+                <button
+                  onClick={() => setPage(p => Math.min(p + 1, totalPages - 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition"
+                >
                   Next →
                 </button>
               </div>

@@ -12,13 +12,6 @@ const inputClass = (hasError) =>
 const labelClass = "block text-xs font-semibold text-gray-600 mb-1"
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
-
-/**
- * Philippine mobile number formats accepted:
- *   09XXXXXXXXX  (11 digits, starts with 09)
- *   +639XXXXXXXXX (13 chars with +63 prefix)
- *   639XXXXXXXXX  (12 digits with 63 prefix)
- */
 const PH_MOBILE_RE = /^(\+?63|0)9\d{9}$/
 
 function validateContactNumber(raw) {
@@ -28,12 +21,6 @@ function validateContactNumber(raw) {
   return null
 }
 
-/**
- * Engine Number:
- *   - alphanumeric only (A-Z 0-9), no spaces / special chars
- *   - 6–20 characters
- *   - uppercased before save
- */
 const ALNUM_RE = /^[A-Z0-9]+$/
 
 function validateEngineNumber(raw) {
@@ -51,12 +38,6 @@ function validateEngineNumber(raw) {
   return null
 }
 
-/**
- * Chassis Number:
- *   - alphanumeric only
- *   - 10–25 characters
- *   - uppercased before save
- */
 function validateChassisNumber(raw) {
   const v = raw.trim().toUpperCase()
   if (!v) return "Chassis number is required."
@@ -72,7 +53,6 @@ function validateChassisNumber(raw) {
 }
 
 // ─── Franchise Slot Number ────────────────────────────────────────────────────
-// Returns SJ-XXXX from the next available slot in franchises table (1–5200)
 async function getNextFranchiseSlot() {
   try {
     const { data } = await supabase
@@ -294,7 +274,6 @@ function FranchisePicker({ franchises, selected, onSelect }) {
             }`}>
             <div className="flex items-center justify-between">
               <div>
-                {/* ✅ Show franchise_number (SJ-XXXX slot), NOT control number */}
                 <p className="font-bold text-sm text-gray-800">Franchise # {f.franchise_number || "—"}</p>
                 <p className="text-xs text-gray-500 mt-0.5">Plate: {f.plate_number || "—"} · Expires: {f.expiration_date}</p>
               </div>
@@ -335,15 +314,17 @@ function WarningPopup({ messages, onClose }) {
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Apply() {
   const navigate = useNavigate()
+  
+  // ✅ ADD THIS: Active tab state for two-page navigation
+  const [activeTab, setActiveTab] = useState("new") // "new" or "renewal"
+  
   const [appType, setAppType] = useState("")
   const [step, setStep] = useState(1)
   const TOTAL_STEPS = 3
   const STEP_LABELS = ["Personal & Vehicle Info", "Required Documents", "Vehicle & Garage Photos"]
 
-  const [myFranchises, setMyFranchises]       = useState([])
+  const [myFranchises, setMyFranchises] = useState([])
   const [selectedFranchise, setSelectedFranchise] = useState(null)
-
-  // ── Approved notif card state ─────────────────────────────────────────────
   const [approvedNotif, setApprovedNotif] = useState(null)
 
   const emptyForm = useMemo(() => ({
@@ -362,22 +343,21 @@ export default function Apply() {
     garage_condition: null, garage_photo: null, owner_photo: null,
   }), [])
 
-  const [formData,    setFormData]    = useState(emptyForm)
-  const [files,       setFiles]       = useState(emptyFiles)
-  const [loading,     setLoading]     = useState(false)
-  const [success,     setSuccess]     = useState(false)
+  const [formData, setFormData] = useState(emptyForm)
+  const [files, setFiles] = useState(emptyFiles)
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
   const [submittedControlNumber, setSubmittedControlNumber] = useState("")
   const [submittedFranchiseNumber, setSubmittedFranchiseNumber] = useState("")
-  const [error,       setError]       = useState("")
+  const [error, setError] = useState("")
   const [blockReason, setBlockReason] = useState("")
   const [checkingStatus, setCheckingStatus] = useState(false)
   const [duplicateAlerts, setDuplicateAlerts] = useState([])
-  const [showDupPopup,    setShowDupPopup]    = useState(false)
-  const [fieldErrors,     setFieldErrors]     = useState({})
-  // Per-field inline messages (engine / chassis / contact)
+  const [showDupPopup, setShowDupPopup] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState({})
   const [inlineErrors, setInlineErrors] = useState({})
 
-  const topRef   = useRef(null)
+  const topRef = useRef(null)
   const errorRef = useRef(null)
 
   // ── Check for unread approved notifications on mount ─────────────────────
@@ -418,11 +398,10 @@ export default function Apply() {
     if (!selectedFranchise) return
     setFormData(prev => ({
       ...prev,
-      // ✅ franchise_number = the slot number (SJ-XXXX), NOT control number
-      franchise_number:    selectedFranchise.franchise_number || "",
+      franchise_number: selectedFranchise.franchise_number || "",
       franchise_expiration: selectedFranchise.expiration_date || "",
-      franchise_status:    selectedFranchise.status || "",
-      plate_no:            selectedFranchise.plate_number || prev.plate_no,
+      franchise_status: selectedFranchise.status || "",
+      plate_no: selectedFranchise.plate_number || prev.plate_no,
     }))
   }, [selectedFranchise])
 
@@ -463,7 +442,6 @@ export default function Apply() {
     const { name, value } = e.target
     let sanitized = value
 
-    // Normalize engine & chassis to uppercase, strip forbidden chars live
     if (name === "motor_no" || name === "chassis_no") {
       sanitized = value.toUpperCase().replace(/[^A-Z0-9]/g, "")
     }
@@ -474,7 +452,6 @@ export default function Apply() {
     setError("")
   }
 
-  // Validate inline on blur for special fields
   const handleBlur = (e) => {
     const { name, value } = e.target
     if (name === "motor_no") {
@@ -505,26 +482,23 @@ export default function Apply() {
 
   // ── Step validations ──────────────────────────────────────────────────────
   const validateStep1 = () => {
-    const errs  = {}
+    const errs = {}
     const inline = {}
 
     if (!formData.franchise_owner.trim()) errs.franchise_owner = true
-    if (!formData.address.trim())         errs.address = true
-    if (!formData.date_of_birth)          errs.date_of_birth = true
-    if (!formData.civil_status)           errs.civil_status = true
+    if (!formData.address.trim()) errs.address = true
+    if (!formData.date_of_birth) errs.date_of_birth = true
+    if (!formData.civil_status) errs.civil_status = true
 
-    // Contact number — PH format
     const contactErr = validateContactNumber(formData.contact_number)
     if (contactErr) { errs.contact_number = true; inline.contact_number = contactErr }
 
-    if (!formData.make.trim())  errs.make = true
+    if (!formData.make.trim()) errs.make = true
     if (!formData.color.trim()) errs.color = true
 
-    // Engine number — strict rules
     const engineErr = validateEngineNumber(formData.motor_no)
     if (engineErr) { errs.motor_no = true; inline.motor_no = engineErr }
 
-    // Chassis number — strict rules
     const chassisErr = validateChassisNumber(formData.chassis_no)
     if (chassisErr) { errs.chassis_no = true; inline.chassis_no = chassisErr }
 
@@ -545,12 +519,12 @@ export default function Apply() {
   const validateStep2 = () => {
     const errs = {}
     if (appType === "registration" && !files.stencil_motor) errs.stencil_motor = true
-    if (!files.or_latest)        errs.or_latest = true
-    if (!files.cr)               errs.cr = true
-    if (!files.cedula)           errs.cedula = true
+    if (!files.or_latest) errs.or_latest = true
+    if (!files.cr) errs.cr = true
+    if (!files.cedula) errs.cedula = true
     if (!files.police_clearance) errs.police_clearance = true
     if (!files.barangay_residency) errs.barangay_residency = true
-    if (!files.voters_cert)      errs.voters_cert = true
+    if (!files.voters_cert) errs.voters_cert = true
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) {
       setError("⚠️ Please upload all required documents.")
@@ -563,7 +537,7 @@ export default function Apply() {
   const validateStep3 = () => {
     const errs = {}
     if (!files.tricycle_condition) errs.tricycle_condition = true
-    if (!files.garage_condition)   errs.garage_condition = true
+    if (!files.garage_condition) errs.garage_condition = true
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) {
       setError("⚠️ Required condition photos are missing.")
@@ -575,11 +549,11 @@ export default function Apply() {
 
   const goNext = () => {
     setError("")
-    if (step === 1 && !validateStep1()) return
-    if (step === 2 && !validateStep2()) return
+    // ✅ REMOVE validation blocking - allow free navigation
     setStep(s => Math.min(s + 1, TOTAL_STEPS))
     topRef.current?.scrollIntoView({ behavior: "smooth" })
   }
+
   const goBack = () => {
     setError("")
     setStep(s => Math.max(s - 1, 1))
@@ -589,14 +563,14 @@ export default function Apply() {
   // ── Duplicate checks ──────────────────────────────────────────────────────
   const checkDuplicates = async () => {
     const alerts = []
-    const motorNorm  = formData.motor_no.trim().toUpperCase()
+    const motorNorm = formData.motor_no.trim().toUpperCase()
     const chassisNorm = formData.chassis_no.trim().toUpperCase()
-    const plateNorm   = formData.plate_no.trim().toUpperCase()
+    const plateNorm = formData.plate_no.trim().toUpperCase()
 
     for (const check of [
-      { jsonKey: "motor_no",   value: motorNorm,   label: "Engine/Motor Number" },
+      { jsonKey: "motor_no", value: motorNorm, label: "Engine/Motor Number" },
       { jsonKey: "chassis_no", value: chassisNorm, label: "Chassis Number" },
-      { jsonKey: "plate_no",   value: plateNorm,   label: "Plate Number" },
+      { jsonKey: "plate_no", value: plateNorm, label: "Plate Number" },
     ]) {
       if (!check.value) continue
       const { data } = await supabase
@@ -623,13 +597,33 @@ export default function Apply() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(""); setDuplicateAlerts([])
-    if (!validateStep3()) return
+    
+    // ✅ Validate ALL steps on submit
+    const step1Valid = validateStep1()
+    const step2Valid = validateStep2()
+    const step3Valid = validateStep3()
+    
+    if (!step1Valid) {
+      setStep(1)
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+      return
+    }
+    if (!step2Valid) {
+      setStep(2)
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+      return
+    }
+    if (!step3Valid) {
+      setStep(3)
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+      return
+    }
+    
     if (blockReason) return
     setLoading(true)
 
     try {
-      // Final backend-level engine/chassis check (in case frontend was bypassed)
-      const engineErr  = validateEngineNumber(formData.motor_no)
+      const engineErr = validateEngineNumber(formData.motor_no)
       const chassisErr = validateChassisNumber(formData.chassis_no)
       const contactErr = validateContactNumber(formData.contact_number)
 
@@ -648,32 +642,25 @@ export default function Apply() {
 
       const { data: { user } } = await supabase.auth.getUser()
       const uid = user.id
-      const ts  = Date.now()
+      const ts = Date.now()
 
-      // ✅ Control number (printed at top of paper) — stored in details only
       const controlNumber = await generateControlNumber()
-
-      // ✅ Franchise slot number — SJ-0001 to SJ-5200
-      // For renewal: keep the existing franchise_number from the selected franchise
-      // For new registration: assign the next available slot
       const franchiseSlot = appType === "renewal" && selectedFranchise?.franchise_number
         ? selectedFranchise.franchise_number
         : await getNextFranchiseSlot()
 
-      // Normalize engine & chassis before saving
-      const normalizedMotor   = formData.motor_no.trim().toUpperCase()
+      const normalizedMotor = formData.motor_no.trim().toUpperCase()
       const normalizedChassis = formData.chassis_no.trim().toUpperCase()
 
-      // Upload files
-      const urls   = {}
+      const urls = {}
       const fileMap = {
-        or_latest: `${uid}/or_latest_${ts}`,           cr: `${uid}/cr_${ts}`,
-        cedula: `${uid}/cedula_${ts}`,                  police_clearance: `${uid}/police_clearance_${ts}`,
+        or_latest: `${uid}/or_latest_${ts}`, cr: `${uid}/cr_${ts}`,
+        cedula: `${uid}/cedula_${ts}`, police_clearance: `${uid}/police_clearance_${ts}`,
         barangay_residency: `${uid}/barangay_residency_${ts}`, voters_cert: `${uid}/voters_cert_${ts}`,
-        stencil_motor: `${uid}/stencil_motor_${ts}`,   tricycle_condition: `${uid}/tricycle_condition_${ts}`,
-        left_signal: `${uid}/left_signal_${ts}`,        right_signal: `${uid}/right_signal_${ts}`,
-        head_light: `${uid}/head_light_${ts}`,          tail_light: `${uid}/tail_light_${ts}`,
-        ilaw_sidecar: `${uid}/ilaw_sidecar_${ts}`,      basurahan_sidecar: `${uid}/basurahan_sidecar_${ts}`,
+        stencil_motor: `${uid}/stencil_motor_${ts}`, tricycle_condition: `${uid}/tricycle_condition_${ts}`,
+        left_signal: `${uid}/left_signal_${ts}`, right_signal: `${uid}/right_signal_${ts}`,
+        head_light: `${uid}/head_light_${ts}`, tail_light: `${uid}/tail_light_${ts}`,
+        ilaw_sidecar: `${uid}/ilaw_sidecar_${ts}`, basurahan_sidecar: `${uid}/basurahan_sidecar_${ts}`,
         garage_condition: `${uid}/garage_condition_${ts}`, garage_photo: `${uid}/garage_photo_${ts}`,
         owner_photo: `${uid}/owner_photo_${ts}`,
       }
@@ -683,10 +670,10 @@ export default function Apply() {
 
       const details = {
         ...formData,
-        motor_no:        normalizedMotor,
-        chassis_no:      normalizedChassis,
-        control_number:  controlNumber,   // printed at top of paper; NOT the franchise number
-        franchise_number: franchiseSlot,  // SJ-XXXX slot; displayed on the franchise card
+        motor_no: normalizedMotor,
+        chassis_no: normalizedChassis,
+        control_number: controlNumber,
+        franchise_number: franchiseSlot,
         ...(appType === "renewal" && selectedFranchise
           ? { franchise_number: selectedFranchise.franchise_number }
           : {}),
@@ -722,19 +709,16 @@ export default function Apply() {
     setLoading(false)
   }
 
-  const isRenewal      = appType === "renewal"
+  const isRenewal = appType === "renewal"
   const isRegistration = appType === "registration"
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <ApplicantLayout backLabel="Back to Dashboard" backPath="/applicant/dashboard">
-
-      {/* ── Approved Notification Card ── */}
       {approvedNotif && (
         <ApprovedNotifCard
           notif={approvedNotif}
           onClose={async () => {
-            // Mark as read when dismissed
             await supabase.from("notifications").update({ is_read: true }).eq("id", approvedNotif.id)
             setApprovedNotif(null)
           }}
@@ -747,7 +731,6 @@ export default function Apply() {
 
       <div className="max-w-7xl mx-auto px-4 py-6" ref={topRef}>
         <div className="bg-white rounded-2xl shadow-md border-t-4 border-orange-500 p-6 md:p-8">
-
           {/* Header */}
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-orange-100 mb-3">
@@ -757,32 +740,93 @@ export default function Apply() {
             <p className="text-gray-400 text-sm mt-1">Municipality of San Jose, Occidental Mindoro</p>
           </div>
 
-          {/* Type Toggle */}
-          <div className="mb-6">
-            <p className="text-sm font-bold text-red-700 mb-3 text-center uppercase tracking-wide">
-              SELECT APPLICATION TYPE <span className="text-red-500">*</span>
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: "registration", icon: "📋", label: "New Registration", sub: "Apply for a brand-new franchise" },
-                { id: "renewal",      icon: "🔄", label: "Renewal",          sub: "Renew an existing franchise" },
-              ].map(({ id, icon, label, sub }) => (
-                <button key={id} type="button" onClick={() => { setAppType(id); setError(""); setDuplicateAlerts([]) }}
-                  className={`relative flex flex-col items-center justify-center gap-1.5 p-4 rounded-2xl font-semibold transition-all duration-200 text-center shadow-sm border-2 ${
-                    appType === id
-                      ? id === "registration"
-                        ? "border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-300 scale-[1.03] shadow-lg"
-                        : "border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-300 scale-[1.03] shadow-lg"
-                      : "border-red-400 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
-                  }`}>
-                  {appType === id && <span className="absolute top-2 right-2 text-xs font-bold px-2 py-0.5 rounded-full bg-white shadow border">✓</span>}
-                  <span className="text-3xl">{icon}</span>
-                  <span className="text-sm font-extrabold uppercase">{label}</span>
-                  <span className="text-xs font-normal text-gray-400">{sub}</span>
+          {/* ✅ TWO-PAGE NAVIGATION SYSTEM */}
+          {!appType && (
+            <div className="space-y-6">
+              {/* Tab Navigation */}
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("new"); setAppType(""); setError("") }}
+                  className={`flex-1 px-4 py-3 rounded-lg font-bold text-sm transition-all ${
+                    activeTab === "new"
+                      ? "bg-white shadow-md text-blue-600"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  📋 New Registration
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("renewal"); setAppType(""); setError("") }}
+                  className={`flex-1 px-4 py-3 rounded-lg font-bold text-sm transition-all ${
+                    activeTab === "renewal"
+                      ? "bg-white shadow-md text-emerald-600"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  🔄 Renewal
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              {activeTab === "new" && (
+                <div className="bg-white border-2 border-blue-200 rounded-2xl p-6">
+                  <div className="text-center mb-4">
+                    <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
+                      <span className="text-3xl">📋</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-blue-900 mb-2">New Franchise Registration</h3>
+                    <p className="text-sm text-gray-600">Apply for a brand-new tricycle franchise permit</p>
+                  </div>
+                  
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 text-sm text-blue-800 space-y-1">
+                    <p className="font-semibold mb-2">✅ Requirements:</p>
+                    <p>• Complete personal information</p>
+                    <p>• Vehicle registration documents</p>
+                    <p>• Valid government IDs</p>
+                    <p>• Garage/parking photos</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAppType("registration")}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-xl font-bold text-sm transition shadow-md"
+                  >
+                    Start New Application →
+                  </button>
+                </div>
+              )}
+
+              {activeTab === "renewal" && (
+                <div className="bg-white border-2 border-emerald-200 rounded-2xl p-6">
+                  <div className="text-center mb-4">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+                      <span className="text-3xl">🔄</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-emerald-900 mb-2">Franchise Renewal</h3>
+                    <p className="text-sm text-gray-600">Renew your existing franchise before expiration</p>
+                  </div>
+                  
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4 text-sm text-emerald-800 space-y-1">
+                    <p className="font-semibold mb-2">✅ Requirements:</p>
+                    <p>• Active franchise within 30 days of expiration</p>
+                    <p>• Updated vehicle documents</p>
+                    <p>• Updated clearances and IDs</p>
+                    <p>• Current garage photos</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAppType("renewal")}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm transition shadow-md"
+                  >
+                    Start Renewal Process →
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {checkingStatus && (
             <div className="bg-blue-50 border border-blue-300 text-blue-700 p-4 rounded-xl mb-4 text-sm flex items-center gap-2">
@@ -840,7 +884,6 @@ export default function Apply() {
                     </div>
                   </div>
 
-                  {/* ✅ Franchise Number display — shows SJ-XXXX slot, read-only */}
                   {isRenewal && (
                     <div>
                       <label className={labelClass}>Franchise Number (auto-filled)</label>
@@ -883,7 +926,6 @@ export default function Apply() {
                         onChange={handleChange} className={inputClass(false)} />
                     </div>
 
-                    {/* ✅ Contact Number — PH format only */}
                     <div>
                       <label className={labelClass}>Contact Number <span className="text-red-500">*</span></label>
                       <input type="tel" name="contact_number" value={formData.contact_number}
@@ -918,7 +960,6 @@ export default function Apply() {
                     )}
                   </div>
 
-                  {/* ── Motorcycle Info ── */}
                   <div className="pt-1">
                     <SectionHeader icon="🏍️" title="Motorcycle Information" />
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -933,7 +974,6 @@ export default function Apply() {
                           placeholder="e.g. Red" className={inputClass(fieldErrors.color)} />
                       </div>
 
-                      {/* ✅ Engine Number — strict validation */}
                       <div className="col-span-2 sm:col-span-1">
                         <label className={labelClass}>Motor/Engine No. <span className="text-red-500">*</span></label>
                         <input type="text" name="motor_no" value={formData.motor_no}
@@ -947,7 +987,6 @@ export default function Apply() {
                         <p className="text-xs text-gray-400 mt-0.5">Letters A–Z and numbers only · 6–20 chars</p>
                       </div>
 
-                      {/* ✅ Chassis Number — strict validation */}
                       <div className="col-span-2 sm:col-span-1">
                         <label className={labelClass}>Chassis No. <span className="text-red-500">*</span></label>
                         <input type="text" name="chassis_no" value={formData.chassis_no}
@@ -998,7 +1037,7 @@ export default function Apply() {
                     <p>• Maximum of <strong>3 approved franchises</strong> per applicant.</p>
                     <p>• Engine, Chassis, and Plate Numbers must be unique.</p>
                     {isRegistration && <p>• <strong>Franchise number (SJ-XXXX)</strong> is auto-assigned upon approval.</p>}
-                    {isRenewal     && <p>• <strong>Franchise number remains the same</strong> upon renewal.</p>}
+                    {isRenewal && <p>• <strong>Franchise number remains the same</strong> upon renewal.</p>}
                     <p>• The <strong>Control Number</strong> (CN-YYYY-XXXXXX) appears only on the printed franchise copy.</p>
                   </div>
 
@@ -1023,12 +1062,12 @@ export default function Apply() {
                           files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.stencil_motor} accept="image/*" />
                       </div>
                     )}
-                    <FileUploadBox label="Latest O.R. ng Motor (LTO)"           fileKey="or_latest"          files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.or_latest} />
-                    <FileUploadBox label="Certificate of Registration C.R. (LTO)" fileKey="cr"               files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.cr} />
-                    <FileUploadBox label="Cedula (Updated)"                      fileKey="cedula"            files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.cedula} />
-                    <FileUploadBox label="Police Clearance"                      fileKey="police_clearance"  files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.police_clearance} />
-                    <FileUploadBox label="Barangay Residency (Updated)"          fileKey="barangay_residency" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.barangay_residency} />
-                    <FileUploadBox label="Voter's Certification – COMELEC (Updated)" fileKey="voters_cert"  files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.voters_cert} />
+                    <FileUploadBox label="Latest O.R. ng Motor (LTO)" fileKey="or_latest" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.or_latest} />
+                    <FileUploadBox label="Certificate of Registration C.R. (LTO)" fileKey="cr" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.cr} />
+                    <FileUploadBox label="Cedula (Updated)" fileKey="cedula" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.cedula} />
+                    <FileUploadBox label="Police Clearance" fileKey="police_clearance" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.police_clearance} />
+                    <FileUploadBox label="Barangay Residency (Updated)" fileKey="barangay_residency" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.barangay_residency} />
+                    <FileUploadBox label="Voter's Certification – COMELEC (Updated)" fileKey="voters_cert" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.voters_cert} />
                   </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={goBack}
@@ -1048,18 +1087,18 @@ export default function Apply() {
                       <FileUploadBox label="Tricycle Condition (Overall)" fileKey="tricycle_condition"
                         files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.tricycle_condition} accept="image/*" />
                     </div>
-                    <FileUploadBox label="Left Signal Light"              fileKey="left_signal"     required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
-                    <FileUploadBox label="Right Signal Light"             fileKey="right_signal"    required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
-                    <FileUploadBox label="Head Light"                     fileKey="head_light"      required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
-                    <FileUploadBox label="Tail Light"                     fileKey="tail_light"      required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
-                    <FileUploadBox label="Ilaw sa Loob ng Sidecar"        fileKey="ilaw_sidecar"    required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
-                    <FileUploadBox label="Basurahan sa Loob ng Sidecar"   fileKey="basurahan_sidecar" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Left Signal Light" fileKey="left_signal" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Right Signal Light" fileKey="right_signal" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Head Light" fileKey="head_light" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Tail Light" fileKey="tail_light" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Ilaw sa Loob ng Sidecar" fileKey="ilaw_sidecar" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Basurahan sa Loob ng Sidecar" fileKey="basurahan_sidecar" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
                   </div>
 
                   <SectionHeader icon="🏠" title="Garage Condition Photos" />
                   <div className="grid grid-cols-2 gap-4">
-                    <FileUploadBox label="Garage Condition (Overall)"        fileKey="garage_condition" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.garage_condition} accept="image/*" />
-                    <FileUploadBox label="Garage / Garahe (with tricycle)"   fileKey="garage_photo"     required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
+                    <FileUploadBox label="Garage Condition (Overall)" fileKey="garage_condition" files={files} onFileChange={handleFileChange} hasError={!!fieldErrors.garage_condition} accept="image/*" />
+                    <FileUploadBox label="Garage / Garahe (with tricycle)" fileKey="garage_photo" required={false} files={files} onFileChange={handleFileChange} hasError={false} accept="image/*" />
                   </div>
 
                   <div className="flex gap-3">
@@ -1076,13 +1115,6 @@ export default function Apply() {
               )}
             </form>
           )}
-
-          {!appType && (
-            <div className="text-center py-12 text-black-400">
-              <span className="text-5xl">⚠️OOPS⚠️</span>
-              <p className="mt-3 text-sm font-medium">Please select an application type above to begin.</p>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1096,14 +1128,12 @@ export default function Apply() {
               Your <span className="font-semibold text-orange-600 capitalize">{appType}</span> application has been successfully submitted.
             </p>
 
-            {/* Franchise Number (SJ-XXXX) — the official slot */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 my-3">
               <p className="text-xs text-gray-500 mb-1">Franchise Number</p>
               <p className="text-lg font-extrabold text-blue-700 tracking-widest">{submittedFranchiseNumber}</p>
               <p className="text-xs text-gray-400 mt-1">This is your official franchise slot number</p>
             </div>
 
-            {/* Control Number — for printed copy only */}
             <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 my-3">
               <p className="text-xs text-gray-500 mb-1">Control Number (printed copy)</p>
               <p className="text-base font-bold text-orange-600 tracking-widest">{submittedControlNumber}</p>

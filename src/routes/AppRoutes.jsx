@@ -29,18 +29,25 @@ import StaffAppointments from "../pages/staff/Appointments";
 import StaffReports from "../pages/staff/Reports";
 import StaffNotifications from "../pages/staff/Notifications";
 import StaffSettings from "../pages/staff/Settings";
-import StaffManualApplication from "../pages/staff/ManualApplications";
 
 function ProtectedRoute({ children, allowedRoles }) {
-  const [role,    setRole]    = useState(null);
+  const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const getRole = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       const { data: profile } = await supabase
-        .from("profiles").select("role").eq("id", user.id).single();
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
       setRole(profile?.role);
       setLoading(false);
     };
@@ -61,38 +68,191 @@ export default function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/"         element={<LandingPage />} />
-        <Route path="/login"    element={<Login />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
         {/* ── Admin ───────────────────────────────────────────────────── */}
-        <Route path="/admin/dashboard"        element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/applications"     element={<ProtectedRoute allowedRoles={["admin"]}><AdminApplications /></ProtectedRoute>} />
-        <Route path="/admin/applications/:id" element={<ProtectedRoute allowedRoles={["admin"]}><AdminApplicationDetail /></ProtectedRoute>} />
-        <Route path="/admin/appointments"     element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppointments /></ProtectedRoute>} />
-        <Route path="/admin/staff"            element={<ProtectedRoute allowedRoles={["admin"]}><AdminStaff /></ProtectedRoute>} />
-        <Route path="/admin/reports"          element={<ProtectedRoute allowedRoles={["admin"]}><AdminReports /></ProtectedRoute>} />
-        <Route path="/admin/notifications"    element={<ProtectedRoute allowedRoles={["admin"]}><AdminNotifications /></ProtectedRoute>} />
-        <Route path="/admin/settings"         element={<ProtectedRoute allowedRoles={["admin"]}><AdminSettings /></ProtectedRoute>} />
-        <Route path="/admin/add-applicant"    element={<ProtectedRoute allowedRoles={["admin"]}><AdminAddApplicant /></ProtectedRoute>} />
-        <Route path="/admin/logs"             element={<ProtectedRoute allowedRoles={["admin"]}><AdminLogs /></ProtectedRoute>} />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/applications"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminApplications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/applications/:id"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminApplicationDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/appointments"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminAppointments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/staff"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminStaff />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/reports"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminReports />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/notifications"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminSettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/add-applicant"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminAddApplicant />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/logs"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminLogs />
+            </ProtectedRoute>
+          }
+        />
 
         {/* ── Applicant ───────────────────────────────────────────────── */}
-        <Route path="/applicant/dashboard"     element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />
-        <Route path="/applicant/apply"         element={<ProtectedRoute allowedRoles={["applicant"]}><Apply /></ProtectedRoute>} />
-        <Route path="/applicant/appointments"  element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantAppointments /></ProtectedRoute>} />
-        <Route path="/applicant/notifications" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantNotifications /></ProtectedRoute>} />
-        <Route path="/applicant/settings"      element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantSettings /></ProtectedRoute>} />
+        <Route
+          path="/applicant/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["applicant"]}>
+              <ApplicantDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/apply"
+          element={
+            <ProtectedRoute allowedRoles={["applicant"]}>
+              <Apply />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/appointments"
+          element={
+            <ProtectedRoute allowedRoles={["applicant"]}>
+              <ApplicantAppointments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/notifications"
+          element={
+            <ProtectedRoute allowedRoles={["applicant"]}>
+              <ApplicantNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/settings"
+          element={
+            <ProtectedRoute allowedRoles={["applicant"]}>
+              <ApplicantSettings />
+            </ProtectedRoute>
+          }
+        />
 
         {/* ── Staff ───────────────────────────────────────────────────── */}
-        <Route path="/staff/dashboard"          element={<ProtectedRoute allowedRoles={["staff"]}><StaffDashboard /></ProtectedRoute>} />
-        <Route path="/staff/applications"       element={<ProtectedRoute allowedRoles={["staff"]}><StaffApplications /></ProtectedRoute>} />
-        <Route path="/staff/applications/:id"   element={<ProtectedRoute allowedRoles={["staff"]}><StaffApplicationDetail /></ProtectedRoute>} />
-        <Route path="/staff/appointments"       element={<ProtectedRoute allowedRoles={["staff"]}><StaffAppointments /></ProtectedRoute>} />
-        <Route path="/staff/reports"            element={<ProtectedRoute allowedRoles={["staff"]}><StaffReports /></ProtectedRoute>} />
-        <Route path="/staff/notifications"      element={<ProtectedRoute allowedRoles={["staff"]}><StaffNotifications /></ProtectedRoute>} />
-        <Route path="/staff/settings"           element={<ProtectedRoute allowedRoles={["staff"]}><StaffSettings /></ProtectedRoute>} />
-        <Route path="/staff/manual-application" element={<ProtectedRoute allowedRoles={["staff"]}><StaffManualApplication /></ProtectedRoute>} />
+        <Route
+          path="/staff/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/applications"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffApplications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/applications/:id"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffApplicationDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/appointments"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffAppointments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/reports"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffReports />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/notifications"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff/settings"
+          element={
+            <ProtectedRoute allowedRoles={["staff"]}>
+              <StaffSettings />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

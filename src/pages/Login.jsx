@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { supabase } from "../lib/supabaseClient"
+import { logActivity } from "../lib/Logger"
 import { useNavigate } from "react-router-dom"
 
 export default function Login() {
@@ -33,7 +34,7 @@ export default function Login() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, full_name")
       .eq("id", data.user.id)
       .single()
 
@@ -44,7 +45,20 @@ export default function Login() {
       return
     }
 
-    // ── Step 3: Redirect based on role from DB (no frontend role logic) ───
+    // ── Step 3: Record the login event ────────────────────────────────────
+    // logActivity reads the current session internally, so call it
+    // AFTER signInWithPassword succeeds and BEFORE navigating away.
+    try {
+      await logActivity({
+        action:  "login",
+        details: `${profile.full_name || email} signed in as ${profile.role}`,
+      })
+    } catch (logErr) {
+      // Non-fatal — never block the login flow because of a logging error.
+      console.warn("[Login] logActivity failed:", logErr?.message)
+    }
+
+    // ── Step 4: Redirect based on role from DB (no frontend role logic) ───
     const role = profile.role?.toLowerCase()
 
     if (role === "admin")          navigate("/admin/dashboard")
@@ -74,10 +88,9 @@ export default function Login() {
           </svg>
         </div>
         <h1 className="text-3xl font-bold text-center mb-2">San Jose Franchise System</h1>
-        <p className="text-blue-200 text-center text-sm">Online Franchise Registration & Renewal</p>
+        <p className="text-blue-200 text-center text-sm">Online Franchise Registration &amp; Renewal</p>
         <p className="text-blue-300 text-center text-xs mt-2">Municipality of San Jose, Occidental Mindoro</p>
 
-        {/* Feature highlights */}
         <div className="mt-10 space-y-3 w-full max-w-xs">
           {[
             "🛺 Apply for tricycle franchise online",
@@ -113,7 +126,6 @@ export default function Login() {
             <h2 className="text-2xl font-bold text-blue-900 mb-1">Welcome Back!</h2>
             <p className="text-gray-500 text-sm mb-6">Sign in with your email and password to continue</p>
 
-            {/* Error message */}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg mb-5 text-sm flex items-start gap-2">
                 <span className="flex-shrink-0 mt-0.5">⚠️</span>
@@ -121,7 +133,6 @@ export default function Login() {
               </div>
             )}
 
-            {/* Loading overlay hint */}
             {loading && step === "fetching_role" && (
               <div className="bg-blue-50 border border-blue-200 text-blue-700 p-3 rounded-lg mb-5 text-sm flex items-center gap-2">
                 <span className="animate-spin text-base">⏳</span>
@@ -130,8 +141,6 @@ export default function Login() {
             )}
 
             <form onSubmit={handleLogin} className="space-y-5">
-
-              {/* Email */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Email Address <span className="text-red-500">*</span>
@@ -147,7 +156,6 @@ export default function Login() {
                 />
               </div>
 
-              {/* Password */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Password <span className="text-red-500">*</span>
@@ -163,7 +171,6 @@ export default function Login() {
                 />
               </div>
 
-              {/* Submit */}
               <button
                 type="submit"
                 disabled={loading}

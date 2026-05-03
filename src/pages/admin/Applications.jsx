@@ -1,203 +1,402 @@
-import { useEffect, useState } from "react"
-import { supabase } from "../../lib/supabaseClient"
-import { useNavigate } from "react-router-dom"
-import AdminLayout from "../../components/AdminLayout"
-import { notifyApplicant } from "../../lib/notifications"
-
-/* DESIGN TOKENS */
-const tokens = {
-  primary:      "#FECE14",
-  border:       "#E5E7EB",
-  paper:        "#FFF7ED",
-  paperBorder:  "#FED7AA",
-}
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
+import AdminLayout from "../../components/AdminLayout";
+import { notifyApplicant } from "../../lib/notifications";
+import { FileText, Search, CheckCircle, XCircle, Eye } from "lucide-react";
 
 export default function AdminApplications() {
-  const [applications, setApplications] = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [filter,       setFilter]       = useState("all")
-  const navigate = useNavigate()
+  const [applications, setApplications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
 
   const fetchApplications = async () => {
     try {
       const { data } = await supabase
         .from("applications")
         .select("*, profiles(full_name, email, phone)")
-        .order("submitted_at", { ascending: false })
-      setApplications(data || [])
+        .order("submitted_at", { ascending: false });
+      setApplications(data || []);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    fetchApplications()
-  }, [])
+    fetchApplications();
+  }, []);
 
   // ── Approve ───────────────────────────────────────────────────────────────
-  const handleApprove = async (application) => {
+  const handleApprove = async (e, application) => {
+    e.stopPropagation();
     try {
       const { error } = await supabase
         .from("applications")
         .update({ status: "approved" })
-        .eq("id", application.id)
-      if (error) throw error
+        .eq("id", application.id);
+      if (error) throw error;
 
       await notifyApplicant({
-        recipientId:       application.applicant_id,
-        title:             "✅ Application Approved",
-        message:           "Congratulations! Your franchise application has been approved. Please visit the Municipal Hall to claim your franchise permit.",
-        applicationId:     application.id,
-        notificationType:  "status_approved",
-        senderType:        "admin",
-      })
+        recipientId: application.applicant_id,
+        title: "✅ Application Approved",
+        message:
+          "Congratulations! Your franchise application has been approved. Please visit the Municipal Hall to claim your franchise permit.",
+        applicationId: application.id,
+        notificationType: "status_approved",
+        senderType: "admin",
+      });
 
-      fetchApplications()
+      fetchApplications();
     } catch (err) {
-      console.error("Approve error:", err.message)
+      console.error("Approve error:", err.message);
     }
-  }
+  };
 
   // ── Reject ────────────────────────────────────────────────────────────────
-  const handleReject = async (application) => {
+  const handleReject = async (e, application) => {
+    e.stopPropagation();
     try {
       const { error } = await supabase
         .from("applications")
         .update({ status: "rejected" })
-        .eq("id", application.id)
-      if (error) throw error
+        .eq("id", application.id);
+      if (error) throw error;
 
       await notifyApplicant({
-        recipientId:       application.applicant_id,
-        title:             "❌ Application Rejected",
-        message:           "Your franchise application has been rejected. Please contact the Franchising Unit for more information.",
-        applicationId:     application.id,
-        notificationType:  "status_rejected",
-        senderType:        "admin",
-      })
+        recipientId: application.applicant_id,
+        title: "❌ Application Rejected",
+        message:
+          "Your franchise application has been rejected. Please contact the Franchising Unit for more information.",
+        applicationId: application.id,
+        notificationType: "status_rejected",
+        senderType: "admin",
+      });
 
-      fetchApplications()
+      fetchApplications();
     } catch (err) {
-      console.error("Reject error:", err.message)
+      console.error("Reject error:", err.message);
     }
-  }
+  };
 
-  const statusColor = (status) => {
-    if (status === "approved")     return "bg-green-100 text-green-700"
-    if (status === "rejected")     return "bg-red-100 text-red-700"
-    if (status === "under_review") return "bg-blue-100 text-blue-700"
-    if (status === "for_release")  return "bg-purple-100 text-purple-700"
-    return "bg-yellow-100 text-yellow-700"
-  }
+  // ── Status helpers ────────────────────────────────────────────────────────
+  const statusBadge = (status) => {
+    if (status === "approved")
+      return "bg-green-100 text-green-700 border-green-200";
+    if (status === "rejected") return "bg-red-100 text-red-600 border-red-200";
+    if (status === "under_review")
+      return "bg-blue-100 text-blue-700 border-blue-200";
+    if (status === "for_release")
+      return "bg-purple-100 text-purple-700 border-purple-200";
+    return "bg-yellow-100 text-yellow-700 border-yellow-200";
+  };
 
-  const filtered =
-    filter === "all"
-      ? applications
-      : applications.filter(a => a.status === filter)
+  // ── Filter tabs ───────────────────────────────────────────────────────────
+  const filterTabs = [
+    { key: "all", label: "ALL" },
+    { key: "pending", label: "PENDING" },
+    { key: "under_review", label: "UNDER REVIEW" },
+    { key: "approved", label: "APPROVED" },
+    { key: "rejected", label: "REJECTED" },
+    { key: "for_release", label: "FOR RELEASE" },
+  ];
 
-  const stats = [
-    { key: "all",          label: "Total",        value: applications.length,                                            color: "#000",    bg: "#F3F4F6" },
-    { key: "pending",      label: "Pending",       value: applications.filter(a => a.status === "pending").length,       color: "#D97706", bg: "#FFFBEB" },
-    { key: "approved",     label: "Approved",      value: applications.filter(a => a.status === "approved").length,      color: "#16A34A", bg: "#ECFDF5" },
-    { key: "rejected",     label: "Rejected",      value: applications.filter(a => a.status === "rejected").length,      color: "#DC2626", bg: "#FEF2F2" },
-    { key: "for_release",  label: "For Release",   value: applications.filter(a => a.status === "for_release").length,   color: "#7C3AED", bg: "#F5F3FF" },
-  ]
+  // ── Derived: filtered list ────────────────────────────────────────────────
+  const filtered = applications
+    .filter((a) => filter === "all" || a.status === filter)
+    .filter((a) => {
+      const q = searchQuery.toLowerCase();
+      if (!q) return true;
+      return (
+        a.profiles?.full_name?.toLowerCase().includes(q) ||
+        a.profiles?.email?.toLowerCase().includes(q) ||
+        a.profiles?.phone?.toLowerCase().includes(q) ||
+        a.details?.plate_no?.toLowerCase().includes(q) ||
+        a.type?.toLowerCase().includes(q)
+      );
+    });
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-5">
+        {/* ── PAGE HEADER ── */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          {/* Title */}
+          <div>
+            <h1 className="text-3xl font-black tracking-tight leading-none">
+              <span className="text-gray-900">APPLICATION</span>
+              <span className="text-yellow-400">REPOSITORY.</span>
+            </h1>
+            <div className="mt-1 h-0.5 w-56 bg-gradient-to-r from-yellow-400 to-transparent rounded-full" />
+            <p className="text-sm text-gray-400 font-medium mt-2 tracking-wide">
+              Audit and process incoming franchise requests.
+            </p>
+          </div>
 
-        {/* HEADER */}
-        <div
-          className="rounded-xl p-6 border"
-          style={{ background: tokens.paper, border: `1px solid ${tokens.paperBorder}` }}
-        >
-          <h1 className="text-xl font-bold text-black">APPLICATIONS</h1>
-          <p className="text-sm mt-1 text-black">Manage and process all submitted franchise applications.</p>
+          {/* Search + filter tabs */}
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {/* Search */}
+            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm w-64">
+              <Search size={14} className="text-gray-300 flex-shrink-0" />
+              <input
+                type="text"
+                placeholder="Search identity or plate..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 text-sm text-gray-700 placeholder-gray-300 outline-none bg-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="text-gray-300 hover:text-gray-500 transition"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Filter tabs */}
+            <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+              {filterTabs.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setFilter(key)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    filter === key
+                      ? "bg-gray-900 text-white shadow"
+                      : "text-gray-400 hover:text-gray-700"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* STATS / FILTER */}
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-          {stats.map(stat => (
+        {/* ── QUICK STATS ROW ── */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+          {[
+            {
+              label: "Total",
+              value: applications.length,
+              color: "text-gray-800",
+              dot: "bg-gray-400",
+            },
+            {
+              label: "Pending",
+              value: applications.filter((a) => a.status === "pending").length,
+              color: "text-yellow-600",
+              dot: "bg-yellow-400",
+            },
+            {
+              label: "In Review",
+              value: applications.filter((a) => a.status === "under_review")
+                .length,
+              color: "text-blue-600",
+              dot: "bg-blue-400",
+            },
+            {
+              label: "Approved",
+              value: applications.filter((a) => a.status === "approved").length,
+              color: "text-green-600",
+              dot: "bg-green-400",
+            },
+            {
+              label: "Rejected",
+              value: applications.filter((a) => a.status === "rejected").length,
+              color: "text-red-600",
+              dot: "bg-red-400",
+            },
+            {
+              label: "For Release",
+              value: applications.filter((a) => a.status === "for_release")
+                .length,
+              color: "text-purple-600",
+              dot: "bg-purple-400",
+            },
+          ].map(({ label, value, color, dot }) => (
             <div
-              key={stat.key}
-              onClick={() => setFilter(stat.key)}
-              className={`p-4 rounded-lg border cursor-pointer transition ${filter === stat.key ? "ring-2 ring-black scale-[1.02]" : "hover:scale-[1.01]"}`}
-              style={{ background: stat.bg, borderColor: stat.color }}
+              key={label}
+              className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-sm text-center"
             >
-              <p className="text-2xl font-semibold" style={{ color: stat.color }}>{stat.value}</p>
-              <p className="text-xs mt-1 font-medium" style={{ color: stat.color }}>{stat.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* LIST */}
-        <div className="space-y-3">
-          {loading ? (
-            <div className="text-center py-12 text-sm">Loading...</div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-3xl mb-2">📄</p>
-              <p className="text-gray-400">No applications found</p>
-            </div>
-          ) : filtered.map(app => (
-            <div
-              key={app.id}
-              onClick={() => navigate(`/admin/applications/${app.id}`)}
-              className="group border rounded-xl p-4 bg-white hover:bg-gray-50 transition cursor-pointer"
-              style={{ borderColor: tokens.border }}
-            >
-              <div className="flex justify-between gap-4">
-                {/* LEFT */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <p className="font-semibold text-black">{app.profiles?.full_name || "Unknown"}</p>
-                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColor(app.status)}`}>
-                      {app.status.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
-                    <span>📧 {app.profiles?.email || "—"}</span>
-                    <span>📞 {app.profiles?.phone || "—"}</span>
-                    <span>🚗 {app.details?.plate_no || "—"}</span>
-                    <span>📦 {app.type}</span>
-                    <span>🗓 {new Date(app.submitted_at || app.created_at).toLocaleDateString("en-PH")}</span>
-                  </div>
-                </div>
-
-                {/* ACTIONS */}
-                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={() => navigate(`/admin/applications/${app.id}`)}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-md"
-                    style={{ background: tokens.primary }}
-                  >
-                    View
-                  </button>
-
-                  {app.status === "pending" && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(app)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 transition"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(app)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-500 text-white hover:bg-red-600 transition"
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                </div>
+              <div className={`text-2xl font-black tabular-nums ${color}`}>
+                {value}
+              </div>
+              <div className="flex items-center justify-center gap-1 mt-0.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                  {label}
+                </span>
               </div>
             </div>
           ))}
         </div>
 
+        {/* ── MAIN CONTENT PANEL ── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px] flex flex-col">
+          {/* Panel header */}
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-green-400"}`}
+              />
+              <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.18em]">
+                {filter === "all"
+                  ? "All Applications"
+                  : filter.replace(/_/g, " ")}
+              </p>
+            </div>
+            <span className="text-[10px] text-gray-300 font-mono">
+              {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* Body */}
+          {loading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+              <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs font-bold text-gray-300 uppercase tracking-widest">
+                Loading repository…
+              </p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+                <FileText size={28} className="text-gray-300" />
+              </div>
+              <p className="text-base font-black text-gray-600">
+                No Applications Found
+              </p>
+              <p className="text-sm text-gray-400 text-center max-w-xs">
+                {searchQuery
+                  ? `No results for "${searchQuery}"`
+                  : filter !== "all"
+                    ? "No applications match this filter."
+                    : "Try adjusting your filters or search query."}
+              </p>
+              {(searchQuery || filter !== "all") && (
+                <button
+                  onClick={() => {
+                    setFilter("all");
+                    setSearchQuery("");
+                  }}
+                  className="text-[11px] font-bold text-yellow-500 hover:text-yellow-600 uppercase tracking-widest transition mt-1"
+                >
+                  ← Clear filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {filtered.map((app) => (
+                <div
+                  key={app.id}
+                  onClick={() => navigate(`/admin/applications/${app.id}`)}
+                  className="flex items-start gap-4 px-6 py-5 cursor-pointer hover:bg-gray-50/70 transition-colors group"
+                >
+                  {/* Icon */}
+                  <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-yellow-50 transition-colors">
+                    <FileText
+                      size={16}
+                      className="text-gray-400 group-hover:text-yellow-500 transition-colors"
+                    />
+                  </div>
+
+                  {/* Main info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <p className="text-sm font-black text-gray-900">
+                        {app.profiles?.full_name || "Unknown Applicant"}
+                      </p>
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusBadge(app.status)}`}
+                      >
+                        {app.status.replace(/_/g, " ")}
+                      </span>
+                      <span className="text-[9px] font-bold text-gray-300 uppercase tracking-widest">
+                        #{app.id.slice(-6)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-400">
+                      {app.profiles?.email && (
+                        <span>✉ {app.profiles.email}</span>
+                      )}
+                      {app.profiles?.phone && (
+                        <span>📞 {app.profiles.phone}</span>
+                      )}
+                      {app.details?.plate_no && (
+                        <span>🚗 {app.details.plate_no}</span>
+                      )}
+                      {app.type && <span>📦 {app.type}</span>}
+                      <span>
+                        🗓{" "}
+                        {new Date(
+                          app.submitted_at || app.created_at,
+                        ).toLocaleDateString("en-PH", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div
+                    className="flex items-center gap-2 flex-shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => navigate(`/admin/applications/${app.id}`)}
+                      className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-gray-700 transition"
+                    >
+                      <Eye size={12} />
+                      View
+                    </button>
+
+                    {app.status === "pending" && (
+                      <>
+                        <button
+                          onClick={(e) => handleApprove(e, app)}
+                          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl bg-green-500 text-white hover:bg-green-600 transition"
+                        >
+                          <CheckCircle size={12} />
+                          Approve
+                        </button>
+                        <button
+                          onClick={(e) => handleReject(e, app)}
+                          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 transition"
+                        >
+                          <XCircle size={12} />
+                          Reject
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Footer */}
+          {!loading && applications.length > 0 && (
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
+                {filtered.length} / {applications.length} applications displayed
+              </span>
+              <button
+                onClick={fetchApplications}
+                className="text-[10px] font-bold text-gray-400 hover:text-yellow-500 transition uppercase tracking-widest"
+              >
+                ↻ Refresh
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </AdminLayout>
-  )
+  );
 }
