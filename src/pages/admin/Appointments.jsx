@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
-import { Calendar, X, ChevronRight, ClipboardList } from "lucide-react";
+import { Calendar, X, ChevronRight, ClipboardList, Check } from "lucide-react";
 
 export default function AdminAppointments() {
   const [appointments, setAppointments] = useState([]);
@@ -19,6 +19,7 @@ export default function AdminAppointments() {
   });
   const [selectedApplicantApps, setSelectedApplicantApps] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [timeConfirmed, setTimeConfirmed] = useState(false);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = async () => {
@@ -45,6 +46,11 @@ export default function AdminAppointments() {
   const handleChange = (e) =>
     setFormData((p) => ({ ...p, [e.target.name]: e.target.value }));
 
+  const handleTimeChange = (e) => {
+    setFormData((p) => ({ ...p, scheduled_time: e.target.value }));
+    setTimeConfirmed(false);
+  };
+
   const handleApplicantChange = async (e) => {
     const applicantId = e.target.value;
     setFormData((p) => ({
@@ -66,6 +72,10 @@ export default function AdminAppointments() {
 
   const handleSchedule = async (e) => {
     e.preventDefault();
+    if (!timeConfirmed && formData.scheduled_time) {
+      alert("Please confirm the time by clicking the 'Okay' button.");
+      return;
+    }
     setSubmitting(true);
     try {
       const selectedApp = selectedApplicantApps.find(
@@ -124,6 +134,7 @@ export default function AdminAppointments() {
   const closeModal = () => {
     setShowModal(false);
     setSelectedApplicantApps([]);
+    setTimeConfirmed(false);
     setFormData({
       applicant_id: "",
       application_id: "",
@@ -516,14 +527,46 @@ export default function AdminAppointments() {
                   <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
                     Time <span className="text-red-400">*</span>
                   </label>
-                  <input
-                    type="time"
-                    name="scheduled_time"
-                    value={formData.scheduled_time}
-                    onChange={handleChange}
-                    required
-                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
-                  />
+                  <div className="relative">
+                    <input
+                      type="time"
+                      name="scheduled_time"
+                      value={formData.scheduled_time}
+                      onChange={handleTimeChange}
+                      required
+                      className={`w-full text-sm text-gray-700 border rounded-xl px-3 py-2.5 outline-none transition ${
+                        timeConfirmed
+                          ? "border-green-400 bg-green-50"
+                          : "border-gray-200 bg-gray-50 focus:border-gray-400"
+                      }`}
+                    />
+                    {formData.scheduled_time && (
+                      <button
+                        type="button"
+                        onClick={() => setTimeConfirmed(true)}
+                        disabled={timeConfirmed}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition ${
+                          timeConfirmed
+                            ? "bg-green-500 text-white cursor-default"
+                            : "bg-orange-500 hover:bg-orange-600 text-white"
+                        }`}
+                      >
+                        {timeConfirmed ? (
+                          <span className="flex items-center gap-1">
+                            <Check size={12} />
+                            Set
+                          </span>
+                        ) : (
+                          "Okay"
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {formData.scheduled_time && !timeConfirmed && (
+                    <p className="text-[10px] text-orange-500 font-medium mt-1">
+                      Click "Okay" to confirm the time
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -15,10 +15,9 @@ import {
   MapPin,
   CheckCircle,
   Globe,
-  LogIn,
 } from "lucide-react";
 
-// ─── Appointment Detail Modal (from bell dropdown) ────────────────────────────
+// ─── Appointment Detail Modal ─────────────────────────────────────────────────
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   return (
@@ -106,7 +105,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Notification Detail Modal (from bell dropdown) ───────────────────────────
+// ─── Notification Detail Modal ────────────────────────────────────────────────
 function NotifDetailModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   const isApproved = (notif.title || "").toLowerCase().includes("approved");
@@ -143,6 +142,7 @@ function NotifDetailModal({ notif, onClose, onNavigate }) {
             title: notif.title,
             tc: "text-orange-800",
           };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div
@@ -215,6 +215,62 @@ function NotifDetailModal({ notif, onClose, onNavigate }) {
   );
 }
 
+// ─── Logout Confirmation Modal ────────────────────────────────────────────────
+function LogoutModal({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-4 border-red-500">
+        {/* Header */}
+        <div className="bg-red-50 px-6 py-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <LogOut size={22} className="text-red-500" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-extrabold text-red-800">Sign Out</h2>
+            <p className="text-xs text-red-400 mt-0.5">Applicant session</p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="text-gray-400 hover:text-gray-600 transition"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5">
+          <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
+            <p className="text-sm font-semibold text-black">
+              ARE YOU SURE YOU WANT TO SIGN OUT?
+            </p>
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Your session will end and you'll be redirected to the home page!
+            </p>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="px-6 pb-6 flex gap-3">
+          <button
+            onClick={onConfirm}
+            className="flex-1 flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl font-bold text-sm transition shadow-sm"
+          >
+            <LogOut size={14} />
+            YES, SIGN OUT
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-green-500 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            STAY LOGGED IN
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
 export default function ApplicantLayout({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -232,8 +288,7 @@ export default function ApplicantLayout({ children }) {
   const [navUnread, setNavUnread] = useState(() =>
     parseInt(localStorage.getItem("notif_unread") || "0", 10),
   );
-  // Bell modal
-  const [bellModal, setBellModal] = useState(null); // { type: "appointment"|"notif", notif }
+  const [bellModal, setBellModal] = useState(null);
 
   const dropdownRef = useRef();
   const navigate = useNavigate();
@@ -263,7 +318,7 @@ export default function ApplicantLayout({ children }) {
     load();
   }, []);
 
-  // Poll notifications every 30s — avoids realtime lock conflict
+  // Poll notifications every 30s
   useEffect(() => {
     let cancelled = false;
     const loadNotifications = async () => {
@@ -316,9 +371,10 @@ export default function ApplicantLayout({ children }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
+  // ✅ Redirects to landing page "/" instead of "/login"
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate("/login");
+    navigate("/");
   };
 
   const markAllAsRead = async () => {
@@ -351,7 +407,6 @@ export default function ApplicantLayout({ children }) {
       new CustomEvent("notif_unread_update", { detail: newCount }),
     );
     setShowDropdown(false);
-
     const type = notif.notification_type || "";
     const title = notif.title?.toLowerCase() || "";
     if (type.includes("appointment") || title.includes("appointment")) {
@@ -383,11 +438,7 @@ export default function ApplicantLayout({ children }) {
 
   const menuItems = [
     { path: "/applicant/dashboard", icon: Home, label: "Home" },
-    {
-      path: "/applicant/apply",
-      icon: ClipboardList,
-      label: "My Applications",
-    },
+    { path: "/applicant/apply", icon: ClipboardList, label: "My Applications" },
     { path: "/applicant/appointments", icon: Calendar, label: "Appointments" },
     {
       path: "/applicant/notifications",
@@ -398,7 +449,6 @@ export default function ApplicantLayout({ children }) {
     { path: "/applicant/settings", icon: Settings, label: "Settings" },
   ];
 
-  // Avatar initials
   const initials = profile?.full_name
     ? profile.full_name
         .split(" ")
@@ -432,25 +482,26 @@ export default function ApplicantLayout({ children }) {
         />
       )}
 
-      {/* ══════════════════════════════════════════════════════════════
-          SIDEBAR — collapsible with toggle
-      ══════════════════════════════════════════════════════════════ */}
+      {/* ── Logout Modal ── */}
+      {showLogoutModal && (
+        <LogoutModal
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogoutModal(false)}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          SIDEBAR
+      ══════════════════════════════════════════════════════ */}
       <aside
         className={`flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-screen sticky top-0 shadow-sm transition-all duration-300 ${
           collapsed ? "w-16" : "w-56"
         }`}
       >
-        {/* Logo / Brand */}
+        {/* Brand */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100">
           <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center flex-shrink-0 shadow-sm">
-            {/* Grid icon */}
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 18 18"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
               <rect x="1" y="1" width="6" height="6" rx="1.5" fill="white" />
               <rect x="11" y="1" width="6" height="6" rx="1.5" fill="white" />
               <rect x="1" y="11" width="6" height="6" rx="1.5" fill="white" />
@@ -469,7 +520,7 @@ export default function ApplicantLayout({ children }) {
           )}
         </div>
 
-        {/* Toggle button */}
+        {/* Collapse toggle */}
         <div className="px-3 py-2 flex justify-center border-b border-gray-100">
           <button
             onClick={() => setCollapsed((prev) => !prev)}
@@ -480,7 +531,7 @@ export default function ApplicantLayout({ children }) {
           </button>
         </div>
 
-        {/* Menu */}
+        {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -530,50 +581,51 @@ export default function ApplicantLayout({ children }) {
           })}
         </nav>
 
-        {/* ── User section ── */}
-        <div
-          className={`border-t border-gray-100 px-4 py-4 space-y-3 ${collapsed ? "px-2" : ""}`}
-        >
-          {/* Avatar + name + role */}
+        {/* ── User + Logout section ── */}
+        <div className="border-t border-gray-100 p-3 space-y-2">
+          {/* Profile card */}
           <div
-            className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}
+            className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-gray-50 border border-gray-100 ${
+              collapsed ? "justify-center" : ""
+            }`}
           >
-            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-black text-orange-600 flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-black text-orange-600 flex-shrink-0 ring-2 ring-orange-200">
               {initials}
             </div>
             {!collapsed && (
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-gray-800 truncate leading-tight">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-gray-800 truncate leading-tight">
                   {profile?.full_name || "Applicant"}
                 </p>
-                <p className="text-[10px] text-gray-400 font-medium leading-tight">
-                  Role: Applicant
+                <p className="text-[10px] text-orange-400 font-semibold leading-tight capitalize">
+                  Applicant
                 </p>
               </div>
             )}
           </div>
 
-          {/* Logout */}
+          {/* Sign Out button */}
           <button
             onClick={() => setShowLogoutModal(true)}
-            className={`flex items-center gap-2 text-red-500 hover:text-red-600 text-sm font-semibold transition-colors ${
-              collapsed ? "justify-center w-full" : ""
-            }`}
-            title={collapsed ? "Logout" : ""}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold
+              text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent
+              hover:border-red-100 transition-all duration-150 ${
+                collapsed ? "justify-center" : ""
+              }`}
+            title={collapsed ? "Sign Out" : ""}
           >
-            <LogIn size={15} className="rotate-180" />
-            {!collapsed && <span>Logout</span>}
+            <LogOut size={14} className="flex-shrink-0" />
+            {!collapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════
           MAIN AREA
-      ══════════════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════════ */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* ── Top header bar ── */}
+        {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-          {/* Left: breadcrumb */}
           <div className="flex items-center gap-3">
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
@@ -585,9 +637,8 @@ export default function ApplicantLayout({ children }) {
             </div>
           </div>
 
-          {/* Right: language + bell */}
           <div className="flex items-center gap-3" ref={dropdownRef}>
-            {/* Language toggle */}
+            {/* Language */}
             <button className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">
               <Globe size={13} />
               <span>English</span>
@@ -605,7 +656,6 @@ export default function ApplicantLayout({ children }) {
                 )}
               </button>
 
-              {/* Bell dropdown */}
               {showDropdown && (
                 <div className="absolute right-0 top-11 w-80 bg-white shadow-xl rounded-2xl border border-gray-100 z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
@@ -694,42 +744,11 @@ export default function ApplicantLayout({ children }) {
           </div>
         </header>
 
-        {/* ── Page content ── */}
+        {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6 bg-gray-50">
           {children}
         </main>
       </div>
-
-      {/* ── Logout confirmation modal ── */}
-      {showLogoutModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-orange-500">
-            <div className="text-center mb-5">
-              <p className="text-4xl mb-2">🚪</p>
-              <h2 className="text-lg font-black text-gray-900">
-                Logout Confirmation
-              </h2>
-              <p className="text-sm text-gray-400 mt-1">
-                Are you sure you want to logout?
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={handleLogout}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
-              >
-                Yes, Logout
-              </button>
-              <button
-                onClick={() => setShowLogoutModal(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
