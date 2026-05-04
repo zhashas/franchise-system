@@ -406,7 +406,7 @@ function DocumentationPortal({ onClose }) {
                 Documentation Portal
               </p>
               <p className="text-[10px] text-gray-400 uppercase tracking-widest">
-                Wiki.RTF — System Reference v1.0.0
+                Admin Manual — System Reference v1.0.0
               </p>
             </div>
           </div>
