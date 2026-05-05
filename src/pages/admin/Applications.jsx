@@ -127,7 +127,7 @@ export default function AdminApplications() {
           <div>
             <h1 className="text-3xl font-black tracking-tight leading-none">
               <span className="text-gray-900">APPLICATION</span>
-              <span className="text-yellow-400">REPOSITORY.</span>
+              <span className="text-yellow-400">CONFIGURATIONS.</span>
             </h1>
             <div className="mt-1 h-0.5 w-56 bg-gradient-to-r from-yellow-400 to-transparent rounded-full" />
             <p className="text-sm text-gray-400 font-medium mt-2 tracking-wide">

@@ -97,9 +97,13 @@ export default function AdminReports() {
           .from("franchises")
           .select("*")
           .order("franchise_number", { ascending: true }),
+        // FIX: join profiles so email and phone are available even when
+        //      the applicant didn't fill them in the application details jsonb.
         supabase
           .from("applications")
-          .select("id, applicant_id, type, status, details, submitted_at")
+          .select(
+            "id, applicant_id, type, status, details, submitted_at, profiles!applications_applicant_id_fkey(full_name, email, phone)",
+          )
           .order("submitted_at", { ascending: false }),
       ]);
       setFranchises(fr || []);
@@ -115,9 +119,15 @@ export default function AdminReports() {
       const approvedApp = findMatchingApp(f, applications, "approved");
       const anyApp = approvedApp || findMatchingApp(f, applications, null);
       const details = approvedApp?.details || anyApp?.details || {};
-      const ownerName = details.franchise_owner || f.owner_name || "—";
-      const email = details.email || f.email || "—";
-      const contact_number = details.contact_number || f.contact_number || "—";
+
+      // FIX: franchises table has no email/contact_number columns.
+      //      Priority: application details → joined profile → fallback "—"
+      const profileData = approvedApp?.profiles || anyApp?.profiles || {};
+      const ownerName =
+        details.franchise_owner || profileData.full_name || f.owner_name || "—";
+      const email = details.email || profileData.email || "—";
+      const contact_number = details.contact_number || profileData.phone || "—";
+
       const plateNumber =
         f.plate_number || (details.plate_no || "").toUpperCase() || "—";
       const rawType = approvedApp?.type || anyApp?.type || "";

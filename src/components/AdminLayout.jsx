@@ -1,3 +1,4 @@
+// src/components/AdminLayout.jsx
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -20,7 +21,8 @@ import {
   Globe,
   ChevronLeft,
   ChevronRight,
-  LogIn,
+  ChevronDown,
+  Wrench,
 } from "lucide-react";
 import { getCategory } from "../utils/notificationUtils";
 
@@ -43,24 +45,99 @@ const formatTimeAgo = (date) => {
   return `${Math.floor(diffMin / 1440)}d ago`;
 };
 
-// ─── Appointment modal ────────────────────────────────────────────────────────
+// ─── Configuration child routes ───────────────────────────────────────────────
+const CONFIG_CHILDREN = [
+  {
+    path: "/admin/staff",
+    icon: Users,
+    label: "Manage Staff",
+    color: "text-blue-500",
+    activeColor: "text-blue-400",
+  },
+  {
+    path: "/admin/add-applicant",
+    icon: UserPlus,
+    label: "Add Applicant",
+    color: "text-emerald-500",
+    activeColor: "text-emerald-400",
+  },
+  {
+    path: "/admin/logs",
+    icon: Activity,
+    label: "Activity Logs",
+    color: "text-purple-500",
+    activeColor: "text-purple-400",
+  },
+  {
+    path: "/admin/settings",
+    icon: Settings,
+    label: "Account Settings",
+    color: "text-gray-500",
+    activeColor: "text-gray-400",
+  },
+];
+
+// ─── Top-level nav items ──────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  {
+    path: "/admin/dashboard",
+    icon: Home,
+    label: "Home",
+    color: "text-orange-500",
+    badge: false,
+  },
+  {
+    path: "/admin/applications",
+    icon: ClipboardList,
+    label: "Applications",
+    color: "text-blue-500",
+    badge: false,
+  },
+  {
+    path: "/admin/appointments",
+    icon: Calendar,
+    label: "Appointments",
+    color: "text-emerald-500",
+    badge: false,
+  },
+  {
+    path: "/admin/reports",
+    icon: BarChart3,
+    label: "Reports",
+    color: "text-purple-500",
+    badge: false,
+  },
+  {
+    path: "/admin/notifications",
+    icon: Bell,
+    label: "Notifications",
+    color: "text-yellow-500",
+    badge: true,
+  },
+];
+
+// ─── Appointment Modal ────────────────────────────────────────────────────────
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
+
   const fmtDate = (d) =>
     new Date(d).toLocaleDateString("en-PH", {
       month: "long",
       day: "numeric",
       year: "numeric",
     });
+
   const fmtTime = (d) =>
     new Date(d).toLocaleTimeString("en-PH", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
     });
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-blue-500">
+        {/* Header */}
         <div className="bg-blue-50 px-6 py-5 flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-3xl">
             📅
@@ -78,6 +155,8 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
             <X size={20} />
           </button>
         </div>
+
+        {/* Body */}
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
@@ -93,6 +172,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
               </p>
             )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
               <div className="flex items-center gap-1.5 mb-1">
@@ -118,6 +198,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
               </span>
             </div>
           </div>
+
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-800 space-y-1">
             <div className="flex items-center gap-1.5 font-bold mb-1">
               <MapPin size={12} />
@@ -128,6 +209,8 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
             <p>• Notify the applicant once confirmed</p>
           </div>
         </div>
+
+        {/* Footer */}
         <div className="px-6 pb-5 flex gap-3">
           <button
             onClick={onNavigate}
@@ -147,12 +230,14 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Application modal ────────────────────────────────────────────────────────
+// ─── Application Modal ────────────────────────────────────────────────────────
 function ApplicationModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-green-500">
+        {/* Header */}
         <div className="bg-green-50 px-6 py-5 flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 text-3xl">
             📋
@@ -172,6 +257,8 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
             <X size={20} />
           </button>
         </div>
+
+        {/* Body */}
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
@@ -187,6 +274,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
               </p>
             )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
               <p className="text-xs text-gray-500 mb-1">Received</p>
@@ -205,6 +293,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
               </span>
             </div>
           </div>
+
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 space-y-1">
             <p className="font-bold mb-1">📋 Admin Checklist:</p>
             <p>• Open the application to review all submitted documents</p>
@@ -212,6 +301,8 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
             <p>• Approve, reject, or schedule for inspection</p>
           </div>
         </div>
+
+        {/* Footer */}
         <div className="px-6 pb-5 flex gap-3">
           <button
             onClick={onNavigate}
@@ -276,7 +367,7 @@ function LogoutModal({ onConfirm, onCancel }) {
           </button>
           <button
             onClick={onCancel}
-            className="flex-1 bg-gray-100 hover:bg-gray-200 text-green-500 py2.5 rounded-xl font-bold text-sm transition"
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-green-500 py-2.5 rounded-xl font-bold text-sm transition"
           >
             STAY LOGGED IN
           </button>
@@ -286,7 +377,119 @@ function LogoutModal({ onConfirm, onCancel }) {
   );
 }
 
-// ─── Layout ───────────────────────────────────────────────────────────────────
+// ─── Configuration Dropdown Nav Item ─────────────────────────────────────────
+function ConfigurationGroup({ collapsed, location, navigate }) {
+  const isAnyChildActive = CONFIG_CHILDREN.some(
+    (c) => location.pathname === c.path,
+  );
+  const [open, setOpen] = useState(isAnyChildActive);
+
+  // ── Collapsed: flat icon buttons ─────────────────────────────────────────
+  if (collapsed) {
+    return (
+      <div className="space-y-0.5">
+        {CONFIG_CHILDREN.map((item) => {
+          const ItemIcon = item.icon;
+          const isActive = location.pathname === item.path;
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              title={item.label}
+              className={`w-full flex items-center justify-center px-3 py-2.5 rounded-xl transition-all duration-150 group ${
+                isActive
+                  ? "bg-gray-900 text-white shadow-sm"
+                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+              }`}
+            >
+              <ItemIcon
+                size={17}
+                className={`flex-shrink-0 ${
+                  isActive
+                    ? "text-white"
+                    : `${item.color} group-hover:opacity-80`
+                }`}
+              />
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ── Expanded: collapsible group ───────────────────────────────────────────
+  return (
+    <div>
+      {/* Parent trigger */}
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
+          isAnyChildActive
+            ? "bg-gray-100 text-gray-900"
+            : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+        }`}
+      >
+        <Wrench
+          size={17}
+          className={`flex-shrink-0 ${
+            isAnyChildActive
+              ? "text-orange-500"
+              : "text-orange-400 group-hover:text-orange-500"
+          }`}
+        />
+        <span className="flex-1 text-left text-[13px] font-semibold">
+          Configuration
+        </span>
+        <ChevronDown
+          size={14}
+          className={`flex-shrink-0 transition-transform duration-200 ${
+            open ? "rotate-180" : "rotate-0"
+          } ${isAnyChildActive ? "text-orange-400" : "text-gray-300"}`}
+        />
+      </button>
+
+      {/* Animated children */}
+      <div
+        className={`overflow-hidden transition-all duration-200 ease-in-out ${
+          open ? "max-h-60 opacity-100 mt-0.5" : "max-h-0 opacity-0"
+        }`}
+      >
+        <div className="ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5 py-0.5">
+          {CONFIG_CHILDREN.map((item) => {
+            const ItemIcon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-150 group ${
+                  isActive
+                    ? "bg-gray-900 text-white shadow-sm"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                }`}
+              >
+                <ItemIcon
+                  size={15}
+                  className={`flex-shrink-0 ${
+                    isActive
+                      ? item.activeColor
+                      : `${item.color} group-hover:opacity-80`
+                  }`}
+                />
+                <span className="flex-1 text-left">{item.label}</span>
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin Layout ─────────────────────────────────────────────────────────────
 export default function AdminLayout({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -297,6 +500,7 @@ export default function AdminLayout({ children }) {
       return false;
     }
   });
+
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [bellNotifs, setBellNotifs] = useState([]);
@@ -310,50 +514,50 @@ export default function AdminLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // ── Persist collapsed state ─────────────────────────────────────────────
   useEffect(() => {
     localStorage.setItem("admin_sidebar_collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
 
-  const navItems = [
-    { path: "/admin/dashboard", icon: Home, label: "Home" },
-    { path: "/admin/applications", icon: ClipboardList, label: "Applications" },
-    { path: "/admin/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/admin/reports", icon: BarChart3, label: "Reports" },
-    {
-      path: "/admin/notifications",
-      icon: Bell,
-      label: "Notifications",
-      badge: true,
-    },
-    { path: "/admin/staff", icon: Users, label: "Manage Staff" },
-    { path: "/admin/add-applicant", icon: UserPlus, label: "Add Applicant" },
-    { path: "/admin/logs", icon: Activity, label: "Activity Logs" },
-    { path: "/admin/settings", icon: Settings, label: "Account Settings" },
-  ];
-
+  // ── Load admin profile ──────────────────────────────────────────────────
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+
+    async function load() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
+
       const { data } = await supabase
         .from("profiles")
         .select("full_name, email, role")
         .eq("id", user.id)
         .single();
-      setAdminProfile(
-        data || { full_name: "User", email: user.email, role: "Administrator" },
-      );
-    };
+
+      if (!cancelled) {
+        setAdminProfile(
+          data || {
+            full_name: "User",
+            email: user.email,
+            role: "Administrator",
+          },
+        );
+      }
+    }
+
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // ── Realtime notifications ──────────────────────────────────────────────
   useEffect(() => {
     let channel;
     let cancelled = false;
 
-    const loadUnread = async () => {
+    async function loadUnread() {
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
@@ -361,18 +565,20 @@ export default function AdminLayout({ children }) {
         .eq("is_read", false)
         .order("created_at", { ascending: false })
         .limit(50);
+
       if (cancelled || error) return;
       const rows = data || [];
       rows.forEach((n) => seenIds.current.add(n.id));
       setBellNotifs(rows.slice(0, 10));
       setUnreadCount(rows.length);
-    };
+    }
 
-    const setupRealtime = async () => {
+    async function setupRealtime() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user || cancelled) return;
+
       channel = supabase
         .channel(`admin-layout-notif-${user.id}`)
         .on(
@@ -385,6 +591,7 @@ export default function AdminLayout({ children }) {
             if (row.recipient_id && row.recipient_id !== user.id) return;
             if (seenIds.current.has(row.id)) return;
             seenIds.current.add(row.id);
+
             let enriched = { ...row, profiles: null };
             if (row.sender_id) {
               const { data: p } = await supabase
@@ -394,6 +601,7 @@ export default function AdminLayout({ children }) {
                 .single();
               enriched.profiles = p || null;
             }
+
             setBellNotifs((prev) => [enriched, ...prev].slice(0, 10));
             setUnreadCount((prev) => prev + 1);
           },
@@ -411,7 +619,7 @@ export default function AdminLayout({ children }) {
           },
         )
         .subscribe();
-    };
+    }
 
     loadUnread();
     setupRealtime();
@@ -429,23 +637,28 @@ export default function AdminLayout({ children }) {
     };
   }, []);
 
+  // ── Close bell dropdown on outside click ───────────────────────────────
   useEffect(() => {
-    const h = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setShowDropdown(false);
+      }
     };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // ── Bell notification click ─────────────────────────────────────────────
   const handleBellNotifClick = async (notif) => {
     await supabase
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notif.id);
+
     setBellNotifs((prev) => prev.filter((n) => n.id !== notif.id));
     setUnreadCount((prev) => Math.max(prev - 1, 0));
     setShowDropdown(false);
+
     const cat = getCategory(notif);
     if (cat === "appointment") {
       setAppointmentNotif(notif);
@@ -455,9 +668,11 @@ export default function AdminLayout({ children }) {
       setApplicationNotif(notif);
       return;
     }
-    if (notif.application_id)
+    if (notif.application_id) {
       navigate(`/admin/applications/${notif.application_id}`);
-    else navigate("/admin/notifications");
+    } else {
+      navigate("/admin/notifications");
+    }
   };
 
   const markAllAsRead = async () => {
@@ -483,6 +698,7 @@ export default function AdminLayout({ children }) {
       .map((w) => w[0]?.toUpperCase() || "")
       .join("") || "U";
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
       {/* ── Modals ── */}
@@ -507,8 +723,6 @@ export default function AdminLayout({ children }) {
           }}
         />
       )}
-
-      {/* ── Logout Modal ── */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={handleLogout}
@@ -516,7 +730,9 @@ export default function AdminLayout({ children }) {
         />
       )}
 
-      {/* ═══SIDEBAR═══ */}
+      {/* ════════════════════════════════════════
+          SIDEBAR
+      ════════════════════════════════════════ */}
       <aside
         className={`flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-screen sticky top-0 shadow-sm transition-all duration-300 ${
           collapsed ? "w-16" : "w-56"
@@ -557,34 +773,35 @@ export default function AdminLayout({ children }) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-          {navItems.map(({ path, icon, label, badge }) => {
-            const isActive = location.pathname === path;
-            const Icon = icon;
+          {/* Top-level nav items */}
+          {NAV_ITEMS.map((item) => {
+            const ItemIcon = item.icon;
+            const isActive = location.pathname === item.path;
             return (
               <button
-                key={path}
-                onClick={() => navigate(path)}
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                title={collapsed ? item.label : ""}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
                   isActive
                     ? "bg-gray-900 text-white shadow-sm"
                     : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                 }`}
-                title={collapsed ? label : ""}
               >
-                <Icon
+                <ItemIcon
                   size={17}
-                  className={`flex-shrink-0 ${
+                  className={`flex-shrink-0 transition-colors ${
                     isActive
                       ? "text-white"
-                      : "text-gray-400 group-hover:text-gray-600"
+                      : `${item.color} group-hover:opacity-80`
                   }`}
                 />
                 {!collapsed && (
                   <>
                     <span className="flex-1 text-left text-[13px]">
-                      {label}
+                      {item.label}
                     </span>
-                    {badge && unreadCount > 0 && (
+                    {item.badge && unreadCount > 0 && (
                       <span
                         className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${
                           isActive
@@ -597,15 +814,33 @@ export default function AdminLayout({ children }) {
                     )}
                   </>
                 )}
-                {collapsed && badge && unreadCount > 0 && (
+                {collapsed && item.badge && unreadCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
                 )}
               </button>
             );
           })}
+
+          {/* Divider before Configuration */}
+          <div className="pt-2 pb-1">
+            {!collapsed ? (
+              <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest px-3">
+                Configuration
+              </p>
+            ) : (
+              <div className="border-t border-gray-100 mx-1" />
+            )}
+          </div>
+
+          {/* Configuration collapsible group */}
+          <ConfigurationGroup
+            collapsed={collapsed}
+            location={location}
+            navigate={navigate}
+          />
         </nav>
 
-        {/* ── User + Logout section ── */}
+        {/* User + Logout */}
         <div className="border-t border-gray-100 p-3 space-y-2">
           {/* Profile card */}
           <div
@@ -613,7 +848,6 @@ export default function AdminLayout({ children }) {
               collapsed ? "justify-center" : ""
             }`}
           >
-            {/* Avatar */}
             <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-black text-orange-600 flex-shrink-0 ring-2 ring-orange-200">
               {initials}
             </div>
@@ -632,40 +866,36 @@ export default function AdminLayout({ children }) {
           {/* Logout button */}
           <button
             onClick={() => setShowLogoutModal(true)}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold
-              text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent
-              hover:border-red-100 transition-all duration-150 ${
-                collapsed ? "justify-center" : ""
-              }`}
             title={collapsed ? "Sign Out" : ""}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all duration-150 ${
+              collapsed ? "justify-center" : ""
+            }`}
           >
-            <LogOut size={14} className="flex-shrink-0" />
+            <LogOut size={14} className="flex-shrink-0 text-red-500" />
             {!collapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════════════════════
+      {/* ════════════════════════════════════════
           MAIN AREA
-      ══════════════════════════════════════════════════════ */}
+      ════════════════════════════════════════ */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
-                Administrator
-              </p>
-              <p className="text-sm font-bold text-gray-800 leading-tight mt-0.5">
-                San Jose Municipal Portal
-              </p>
-            </div>
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+              Administrator
+            </p>
+            <p className="text-sm font-bold text-gray-800 leading-tight mt-0.5">
+              San Jose Municipal Portal
+            </p>
           </div>
 
           <div className="flex items-center gap-3" ref={dropdownRef}>
-            {/* Language */}
+            {/* Language toggle */}
             <button className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">
-              <Globe size={13} />
+              <Globe size={13} className="text-blue-400" />
               <span>English</span>
             </button>
 
@@ -675,7 +905,7 @@ export default function AdminLayout({ children }) {
                 onClick={() => setShowDropdown((p) => !p)}
                 className="relative p-2 rounded-xl hover:bg-gray-100 transition text-gray-500 hover:text-gray-700"
               >
-                <Bell size={18} />
+                <Bell size={18} className="text-yellow-500" />
                 {unreadCount > 0 && (
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
                 )}
@@ -683,6 +913,7 @@ export default function AdminLayout({ children }) {
 
               {showDropdown && (
                 <div className="absolute right-0 top-11 w-80 bg-white shadow-xl rounded-2xl border border-gray-100 z-50 overflow-hidden">
+                  {/* Dropdown header */}
                   <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
                     <div>
                       <p className="text-sm font-bold text-gray-800">
@@ -702,6 +933,7 @@ export default function AdminLayout({ children }) {
                     )}
                   </div>
 
+                  {/* Notification rows */}
                   {bellNotifs.length === 0 ? (
                     <div className="p-8 text-center">
                       <Bell size={28} className="text-gray-200 mx-auto mb-2" />
@@ -743,6 +975,7 @@ export default function AdminLayout({ children }) {
                     </div>
                   )}
 
+                  {/* View all */}
                   <div className="border-t border-gray-100">
                     <button
                       onClick={() => {

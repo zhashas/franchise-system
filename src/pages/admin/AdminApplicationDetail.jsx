@@ -1,9 +1,19 @@
-import { useEffect, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { supabase } from "../../lib/supabaseClient"
-import AdminLayout from "../../components/AdminLayout"
+// src/pages/admin/AdminApplicationDetail.jsx
+import { useEffect, useState, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { supabase } from "../../lib/supabaseClient";
+import AdminLayout from "../../components/AdminLayout";
+import {
+  Lock,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Package,
+  Eye,
+  ArrowLeft,
+} from "lucide-react";
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── Helper Components ───────────────────────────────────────────────────────
 const Section = ({ icon, title, children }) => (
   <div className="mb-8">
     <h2 className="text-xs font-bold text-gray-700 mb-4 pb-2 border-b-2 border-orange-200 uppercase tracking-widest flex items-center gap-2">
@@ -11,62 +21,124 @@ const Section = ({ icon, title, children }) => (
     </h2>
     {children}
   </div>
-)
+);
 
 const Field = ({ label, value, span = "" }) => (
   <div className={span}>
-    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">{label}</p>
+    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
+      {label}
+    </p>
     <p className="text-sm font-medium text-gray-800 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200 min-h-[36px]">
       {value || <span className="text-gray-400 italic">—</span>}
     </p>
   </div>
-)
+);
 
 const StatusBadge = ({ status }) => {
   const map = {
-    pending:      { bg: "bg-yellow-100", text: "text-yellow-800", border: "border-yellow-300", icon: "⏳" },
-    under_review: { bg: "bg-blue-100",   text: "text-blue-800",   border: "border-blue-300",   icon: "🔍" },
-    approved:     { bg: "bg-green-100",  text: "text-green-800",  border: "border-green-300",  icon: "✅" },
-    rejected:     { bg: "bg-red-100",    text: "text-red-800",    border: "border-red-300",    icon: "❌" },
-    for_release:  { bg: "bg-purple-100", text: "text-purple-800", border: "border-purple-300", icon: "📤" },
-  }
-  const s = map[status] || { bg: "bg-gray-100", text: "text-gray-600", border: "border-gray-300", icon: "❓" }
+    pending: {
+      bg: "bg-yellow-100",
+      text: "text-yellow-800",
+      border: "border-yellow-300",
+      icon: "⏳",
+    },
+    under_review: {
+      bg: "bg-blue-100",
+      text: "text-blue-800",
+      border: "border-blue-300",
+      icon: "🔍",
+    },
+    approved: {
+      bg: "bg-green-100",
+      text: "text-green-800",
+      border: "border-green-300",
+      icon: "✅",
+    },
+    rejected: {
+      bg: "bg-red-100",
+      text: "text-red-800",
+      border: "border-red-300",
+      icon: "❌",
+    },
+    for_release: {
+      bg: "bg-purple-100",
+      text: "text-purple-800",
+      border: "border-purple-300",
+      icon: "📤",
+    },
+    released: {
+      bg: "bg-gray-100",
+      text: "text-gray-800",
+      border: "border-gray-300",
+      icon: "✓",
+    },
+  };
+  const s = map[status] || {
+    bg: "bg-gray-100",
+    text: "text-gray-600",
+    border: "border-gray-300",
+    icon: "❓",
+  };
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${s.bg} ${s.text} ${s.border}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${s.bg} ${s.text} ${s.border}`}
+    >
       {s.icon} {status?.replace(/_/g, " ").toUpperCase()}
     </span>
-  )
-}
+  );
+};
 
 const ImageModal = ({ src, label, onClose }) => (
-  <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4" onClick={onClose}>
-    <div className="relative max-w-4xl w-full" onClick={e => e.stopPropagation()}>
-      <button onClick={onClose} className="absolute -top-10 right-0 text-white text-sm font-bold bg-red-600 hover:bg-red-700 px-3 py-1 rounded-lg">
+  <div
+    className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4"
+    onClick={onClose}
+  >
+    <div
+      className="relative max-w-4xl w-full"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={onClose}
+        className="absolute -top-10 right-0 text-white text-sm font-bold bg-red-600 hover:bg-red-700 px-3 py-1 rounded-lg"
+      >
         ✕ Close
       </button>
-      <p className="text-white text-xs font-semibold mb-2 text-center uppercase tracking-wide">{label}</p>
-      <img src={src} alt={label} className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl" />
+      <p className="text-white text-xs font-semibold mb-2 text-center uppercase tracking-wide">
+        {label}
+      </p>
+      <img
+        src={src}
+        alt={label}
+        className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"
+      />
     </div>
   </div>
-)
+);
 
 const DocCard = ({ label, url }) => {
-  const [modalOpen, setModalOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false);
 
-  if (!url) return (
-    <div className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 text-gray-400 text-xs text-center px-2">
-      <span className="text-2xl mb-1">📄</span>
-      <span className="font-medium text-gray-500 text-xs mb-1">{label}</span>
-      <span className="italic">Not uploaded</span>
-    </div>
-  )
+  if (!url)
+    return (
+      <div className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 text-gray-400 text-xs text-center px-2">
+        <span className="text-2xl mb-1">📄</span>
+        <span className="font-medium text-gray-500 text-xs mb-1">{label}</span>
+        <span className="italic">Not uploaded</span>
+      </div>
+    );
 
-  const isImage = /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url)
-  const isPdf   = /\.pdf(\?|$)/i.test(url)
+  const isImage = /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+  const isPdf = /\.pdf(\?|$)/i.test(url);
 
   return (
     <>
-      {modalOpen && isImage && <ImageModal src={url} label={label} onClose={() => setModalOpen(false)} />}
+      {modalOpen && isImage && (
+        <ImageModal
+          src={url}
+          label={label}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
       <div className="flex flex-col border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition bg-white">
         <div
           className="relative h-36 bg-gray-100 flex items-center justify-center cursor-pointer group"
@@ -74,11 +146,18 @@ const DocCard = ({ label, url }) => {
         >
           {isImage ? (
             <>
-              <img src={url} alt={label} className="w-full h-full object-cover group-hover:opacity-90 transition"
-                onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex" }}
+              <img
+                src={url}
+                alt={label}
+                className="w-full h-full object-cover group-hover:opacity-90 transition"
+                onError={(e) => {
+                  e.target.style.display = "none";
+                  e.target.nextSibling.style.display = "flex";
+                }}
               />
               <div className="hidden absolute inset-0 flex-col items-center justify-center text-gray-400 text-xs">
-                <span className="text-3xl">🖼️</span><span>Image unavailable</span>
+                <span className="text-3xl">🖼️</span>
+                <span>Image unavailable</span>
               </div>
               <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition flex items-center justify-center">
                 <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-xs bg-black bg-opacity-60 px-3 py-1.5 rounded-full transition">
@@ -88,343 +167,636 @@ const DocCard = ({ label, url }) => {
             </>
           ) : isPdf ? (
             <div className="flex flex-col items-center justify-center text-gray-400">
-              <span className="text-4xl">📑</span><span className="text-xs mt-1">PDF Document</span>
+              <span className="text-4xl">📑</span>
+              <span className="text-xs mt-1">PDF Document</span>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center text-gray-400">
-              <span className="text-4xl">📄</span><span className="text-xs mt-1">File</span>
+              <span className="text-4xl">📄</span>
+              <span className="text-xs mt-1">File</span>
             </div>
           )}
         </div>
         <div className="px-3 py-2 bg-white border-t border-gray-100">
-          <p className="text-xs font-semibold text-gray-600 leading-tight mb-1 line-clamp-2">{label}</p>
-          <a href={url} target="_blank" rel="noopener noreferrer"
+          <p className="text-xs font-semibold text-gray-600 leading-tight mb-1 line-clamp-2">
+            {label}
+          </p>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
-            onClick={e => e.stopPropagation()}>
+            onClick={(e) => e.stopPropagation()}
+          >
             🔗 Open / Download
           </a>
         </div>
       </div>
     </>
-  )
-}
+  );
+};
 
-// ─── Notification templates ───────────────────────────────────────────────────
+// ─── Notification Templates ─────────────────────────────────────────────────
 const STATUS_NOTIF = {
   under_review: {
-    title:   "Application Under Review 🔍",
-    message: "Your franchise application is now being reviewed by the admin. You will be notified of the result shortly.",
-    type:    "status_under_review",
+    title: "Application Under Review 🔍",
+    message:
+      "Your franchise application is now being reviewed by the admin. You will be notified of the result shortly.",
+    type: "status_under_review",
   },
   approved: {
-    title:   "Application Approved ✅",
+    title: "Application Approved ✅",
     message: "Congratulations! Your franchise application has been approved.",
-    type:    "status_approved",
+    type: "status_approved",
   },
   rejected: {
-    title:   "Application Rejected ❌",
-    message: "We regret to inform you that your franchise application has been rejected.",
-    type:    "status_rejected",
+    title: "Application Rejected ❌",
+    message:
+      "We regret to inform you that your franchise application has been rejected.",
+    type: "status_rejected",
   },
   for_release: {
-    title:   "Franchise Ready for Release 📤",
-    message: "Your franchise documents are ready for release. Please visit the Municipal Hall to claim your franchise permit.",
-    type:    "status_for_release",
+    title: "Franchise Ready for Release 📤",
+    message:
+      "Your franchise documents are ready for release. Please visit the Municipal Hall during office hours to claim your franchise permit.",
+    type: "status_for_release",
   },
-}
+  released: {
+    title: "Franchise Released ✓",
+    message:
+      "Your franchise permit has been successfully released. Please keep it safe and ensure compliance with all regulations.",
+    type: "status_released",
+  },
+};
 
 const addYears = (dateStr, years) => {
-  const d = new Date(dateStr)
-  d.setFullYear(d.getFullYear() + years)
-  return d.toISOString().split("T")[0]
-}
-const todayStr = () => new Date().toISOString().split("T")[0]
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().split("T")[0];
+};
 
-// ─── Insert a notification row, trying multiple column name strategies ────────
-// Handles databases where the column might be named differently.
-async function insertNotification(payload) {
-  // Strategy 1: use recipient_id (expected schema after running SQL migration)
-  const { error: e1 } = await supabase.from("notifications").insert(payload)
-  if (!e1) return { success: true }
+const todayStr = () => new Date().toISOString().split("T")[0];
 
-  // If it fails due to missing column, try alternative column names
-  if (e1.code === "23502" || e1.code === "42703" || e1.message?.includes("recipient_id")) {
-    // Try with user_id instead
-    const alt = { ...payload }
-    delete alt.recipient_id
-    alt.user_id = payload.recipient_id
+// ─── Insert Notification ───────────────────────────────────────────────────
+// FIX: dedup_key no longer includes Date.now() — it is now a stable
+//      application+type key so the DB UNIQUE INDEX actually prevents
+//      duplicates.  If the same notification already exists we treat it
+//      as a success (idempotent).  Also accepts senderId so the admin's
+//      identity is recorded.
+async function insertNotification({
+  recipientId,
+  recipientType,
+  senderId, // ← admin user id
+  senderType,
+  applicationId,
+  notificationType,
+  title,
+  message,
+}) {
+  // Stable dedup key: one notification per application per status transition
+  const dedupKey = `${applicationId}_${notificationType}`;
 
-    const { error: e2 } = await supabase.from("notifications").insert(alt)
-    if (!e2) return { success: true, usedColumn: "user_id" }
+  const payload = {
+    recipient_id: recipientId, // FK → profiles
+    recipient_type: recipientType, // 'applicant'
+    sender_id: senderId ?? null, // FK → profiles (admin)
+    sender_type: senderType, // 'admin'
+    application_id: applicationId, // FK → applications
+    notification_type: notificationType,
+    title,
+    message,
+    is_read: false,
+    dedup_key: dedupKey,
+  };
 
-    // Try with applicant_id
-    const alt2 = { ...payload }
-    delete alt2.recipient_id
-    alt2.applicant_id = payload.recipient_id
+  const { data, error } = await supabase
+    .from("notifications")
+    .insert(payload)
+    .select("id")
+    .single();
 
-    const { error: e3 } = await supabase.from("notifications").insert(alt2)
-    if (!e3) return { success: true, usedColumn: "applicant_id" }
-
-    return {
-      success: false,
-      error: e3,
-      hint: "All column name strategies failed. Run fix_notifications_table.sql in Supabase.",
+  if (error) {
+    // 23505 = unique_violation → notification already sent for this transition
+    // Treat as success so the admin doesn't see a false warning.
+    if (error.code === "23505") {
+      console.info(
+        `[insertNotification] Duplicate suppressed for key: ${dedupKey}`,
+      );
+      return { success: true, duplicate: true };
     }
+    console.error("[insertNotification] Failed:", error);
+    return { success: false, error };
   }
 
-  return { success: false, error: e1 }
+  console.log("[insertNotification] Inserted notification:", data?.id);
+  return { success: true, id: data?.id };
 }
 
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
+// ─── Status Flow Logic ─────────────────────────────────────────────────────
+const STATUS_FLOW = {
+  pending: {
+    allowedNext: ["under_review", "rejected"],
+    locked: false,
+    description: "Initial application state - awaiting review",
+  },
+  under_review: {
+    allowedNext: ["approved", "rejected"],
+    locked: false,
+    description: "Application is being reviewed by admin",
+  },
+  approved: {
+    allowedNext: ["for_release"],
+    locked: true,
+    description:
+      "Approved - franchise record created, can only move to release",
+  },
+  rejected: {
+    allowedNext: [],
+    locked: true,
+    description: "Final state - application rejected, cannot be changed",
+  },
+  for_release: {
+    allowedNext: ["released"],
+    locked: true,
+    description: "Documents ready for pickup at Municipal Hall",
+  },
+  released: {
+    allowedNext: [],
+    locked: true,
+    description: "Final state - permit has been claimed by applicant",
+  },
+};
+
+const canTransitionTo = (currentStatus, targetStatus) => {
+  const flow = STATUS_FLOW[currentStatus];
+  if (!flow) return false;
+  return flow.allowedNext.includes(targetStatus);
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────
 export default function AdminApplicationDetail() {
-  const { id }   = useParams()
-  const navigate = useNavigate()
+  const { id } = useParams();
+  const navigate = useNavigate();
 
-  const [app,            setApp]            = useState(null)
-  const [loading,        setLoading]        = useState(true)
-  const [error,          setError]          = useState("")
-  const [successMsg,     setSuccessMsg]     = useState("")
-  const [statusUpdating, setStatusUpdating] = useState(false)
-  const [adminRemarks,   setAdminRemarks]   = useState("")
-  const [showRemarkBox,  setShowRemarkBox]  = useState(false)
-  const [pendingStatus,  setPendingStatus]  = useState("")
-  const [notifWarning,   setNotifWarning]   = useState("") // non-fatal notif issues
+  const [app, setApp] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [adminRemarks, setAdminRemarks] = useState("");
+  const [showRemarkBox, setShowRemarkBox] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState("");
+  const [notifWarning, setNotifWarning] = useState("");
+  const [releaseDate, setReleaseDate] = useState(todayStr());
+  const [releasedTo, setReleasedTo] = useState("");
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchApplication() }, [id])
+  // FIX: capture admin user id so it can be stored as sender_id in notifications
+  const adminIdRef = useRef(null);
+
+  useEffect(() => {
+    const init = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) adminIdRef.current = user.id;
+      fetchApplication();
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const fetchApplication = async () => {
-    setLoading(true)
-    setError("")
+    setLoading(true);
+    setError("");
     try {
       const { data, error: fetchError } = await supabase
         .from("applications")
         .select(`*, profiles!applications_applicant_id_fkey(full_name, email)`)
         .eq("id", id)
-        .single()
+        .single();
 
-      if (fetchError) throw fetchError
-      setApp(data)
-      setAdminRemarks(data.admin_remarks || "")
+      if (fetchError) throw fetchError;
+      setApp(data);
+      setAdminRemarks(data.admin_remarks || "");
+      setReleasedTo(
+        data.details?.franchise_owner || data.profiles?.full_name || "",
+      );
     } catch (err) {
-      setError("Failed to load application: " + err.message)
+      setError("Failed to load application: " + err.message);
     }
-    setLoading(false)
-  }
+    setLoading(false);
+  };
 
   const initiateStatusChange = (newStatus) => {
-    setError(""); setSuccessMsg(""); setNotifWarning("")
-    setPendingStatus(newStatus)
-    setShowRemarkBox(true)
-  }
+    setError("");
+    setSuccessMsg("");
+    setNotifWarning("");
 
-  // ─── Sync franchise record on approval ───────────────────────────────────
-  const syncFranchiseRecord = async (application) => {
-    const d         = application.details || {}
-    const isRenewal = application.type === "renewal"
-    const today     = todayStr()
-    const newExpiry = addYears(today, 3)
-
-    const payload = {
-      owner_name:      d.franchise_owner || application.profiles?.full_name || "",
-      plate_number:    (d.plate_no || "").toUpperCase(),
-      date_issued:     today,
-      expiration_date: newExpiry,
-      status:          "active",
-      applicant_id:    application.applicant_id,
+    if (!canTransitionTo(app.status, newStatus)) {
+      setError(
+        `Cannot change from "${app.status}" to "${newStatus}". Invalid status transition.`,
+      );
+      return;
     }
 
+    setPendingStatus(newStatus);
+    setShowRemarkBox(true);
+  };
+
+  // ─── Sync Franchise Record ────────────────────────────────────────────────
+  const syncFranchiseRecord = async (application) => {
+    const d = application.details || {};
+    const isRenewal = application.type === "renewal";
+    const today = todayStr();
+    const newExpiry = addYears(today, 3);
+
+    const plateNumber = (d.plate_no || "").toUpperCase();
+    const ownerName =
+      d.franchise_owner || application.profiles?.full_name || "";
+
+    // Guard: plate_number is NOT NULL in schema
+    if (!plateNumber) {
+      console.warn(
+        "[syncFranchiseRecord] Skipped: plate_number is empty in application details.",
+      );
+      return { skipped: true };
+    }
+
+    const payload = {
+      owner_name: ownerName,
+      plate_number: plateNumber,
+      date_issued: today,
+      expiration_date: newExpiry,
+      status: "active",
+      applicant_id: application.applicant_id,
+    };
+
     if (isRenewal && d.franchise_number) {
+      // Update existing franchise by franchise_number
       const { error: upErr } = await supabase
         .from("franchises")
         .update(payload)
-        .eq("franchise_number", d.franchise_number.toUpperCase())
+        .eq("franchise_number", d.franchise_number.toUpperCase());
 
       if (upErr) {
-        const { error: insErr } = await supabase
-          .from("franchises")
-          .insert([{ ...payload, franchise_number: d.franchise_number.toUpperCase() }])
-        if (insErr) console.error("Franchise insert fallback error:", insErr.message)
+        console.warn("Franchise update failed, trying insert:", upErr.message);
+        // Fallback: insert if the record doesn't exist yet
+        const { error: insErr } = await supabase.from("franchises").insert([
+          {
+            ...payload,
+            franchise_number: d.franchise_number.toUpperCase(),
+          },
+        ]);
+        if (insErr) {
+          console.error("Franchise insert fallback error:", insErr.message);
+          return { error: insErr };
+        }
       }
     } else {
-      const franchiseNumber =
-        d.franchise_number || d.control_number || `TRIC-${Date.now().toString().slice(-6)}`
+      // New registration: upsert franchise record
+      const franchiseNumber = (
+        d.franchise_number ||
+        d.control_number ||
+        `TRIC-${Date.now().toString().slice(-6)}`
+      ).toUpperCase();
 
       const { error: upsErr } = await supabase
         .from("franchises")
-        .upsert([{ ...payload, franchise_number: franchiseNumber.toUpperCase() }], {
+        .upsert([{ ...payload, franchise_number: franchiseNumber }], {
           onConflict: "franchise_number",
-        })
-      if (upsErr) console.error("Franchise upsert error:", upsErr.message)
-    }
-  }
+        });
 
-  // ─── Confirm status change ────────────────────────────────────────────────
+      if (upsErr) {
+        // If conflict is on plate_number try updating instead
+        if (upsErr.code === "23505") {
+          const { error: upByPlate } = await supabase
+            .from("franchises")
+            .update({ ...payload, franchise_number: franchiseNumber })
+            .eq("plate_number", plateNumber);
+          if (upByPlate) {
+            console.error(
+              "Franchise update-by-plate error:",
+              upByPlate.message,
+            );
+            return { error: upByPlate };
+          }
+        } else {
+          console.error("Franchise upsert error:", upsErr.message);
+          return { error: upsErr };
+        }
+      }
+    }
+
+    return { success: true };
+  };
+
+  // ─── Confirm Status Change ────────────────────────────────────────────────
   const confirmStatusChange = async () => {
-    if (!pendingStatus) return
-    setStatusUpdating(true)
-    setError(""); setNotifWarning("")
+    if (!pendingStatus) return;
+    setStatusUpdating(true);
+    setError("");
+    setNotifWarning("");
 
     try {
+      const updatePayload = {
+        status: pendingStatus,
+        admin_remarks: adminRemarks,
+      };
+
+      // Add release metadata if marking as released
+      if (pendingStatus === "released") {
+        updatePayload.release_date = releaseDate;
+        updatePayload.released_to = releasedTo;
+      }
+
       // 1. Update application status
       const { error: updateError } = await supabase
         .from("applications")
-        .update({ status: pendingStatus, admin_remarks: adminRemarks })
-        .eq("id", id)
+        .update(updatePayload)
+        .eq("id", id);
 
-      if (updateError) throw updateError
+      if (updateError) throw updateError;
 
       // 2. Sync franchise record if approved
       if (pendingStatus === "approved") {
-        await syncFranchiseRecord(app)
+        const syncResult = await syncFranchiseRecord(app);
+        if (syncResult?.error) {
+          setNotifWarning(
+            `⚠️ Application approved but franchise record could not be created/updated: ${syncResult.error.message}. Please create it manually in the Franchises panel.`,
+          );
+        }
       }
 
-      // 3. Insert notification
-      const template = STATUS_NOTIF[pendingStatus]
-      if (template && app?.applicant_id) {
-        const extraNote = adminRemarks.trim() ? ` Admin note: "${adminRemarks.trim()}"` : ""
+      // 3. Update franchise record when marking as released
+      if (pendingStatus === "released") {
+        const d = app.details || {};
+        const franchiseNumber = (
+          d.franchise_number ||
+          d.control_number ||
+          ""
+        ).toUpperCase();
 
-        let finalMessage = template.message + extraNote
+        if (franchiseNumber) {
+          await supabase
+            .from("franchises")
+            .update({
+              status: "active",
+              release_date: releaseDate,
+              released_to: releasedTo,
+            })
+            .eq("franchise_number", franchiseNumber);
+        }
+      }
+
+      // 4. Build & insert notification
+      const template = STATUS_NOTIF[pendingStatus];
+      if (template && app?.applicant_id) {
+        const extraNote = adminRemarks.trim()
+          ? ` Admin note: "${adminRemarks.trim()}"`
+          : "";
+
+        let finalMessage = template.message + extraNote;
+
+        // Customise message per status
         if (pendingStatus === "approved") {
-          const expiry = addYears(todayStr(), 3)
+          const expiry = addYears(todayStr(), 3);
           finalMessage =
             `Congratulations! Your franchise application has been approved. ` +
-            `Your franchise is now active and valid until ${expiry}.` +
-            (extraNote || "")
+            `Your franchise is now active and valid until ${new Date(
+              expiry,
+            ).toLocaleDateString("en-PH", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}.` +
+            (extraNote || "");
+        } else if (pendingStatus === "for_release") {
+          finalMessage =
+            `Your franchise documents are ready for release. Please visit the Municipal Hall, ` +
+            `San Jose, Occidental Mindoro during office hours (8:00 AM - 5:00 PM, Monday to Friday) ` +
+            `to claim your franchise permit. Please bring a valid ID.` +
+            (extraNote || "");
+        } else if (pendingStatus === "released") {
+          finalMessage =
+            `Your franchise permit has been successfully released on ${new Date(
+              releaseDate,
+            ).toLocaleDateString("en-PH", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}. ` +
+            `Please keep it safe and ensure compliance with all regulations. Thank you for your cooperation.` +
+            (extraNote || "");
         }
 
+        // FIX: pass senderId (admin's user id) and use stable dedup_key
         const result = await insertNotification({
-          recipient_id:      app.applicant_id,
-          recipient_type:    "applicant",
-          sender_type:       "admin",
-          application_id:    id,
-          notification_type: template.type,
-          title:             template.title,
-          message:           finalMessage,
-          is_read:           false,
-        })
+          recipientId: app.applicant_id,
+          recipientType: "applicant",
+          senderId: adminIdRef.current, // ← admin user id now recorded
+          senderType: "admin",
+          applicationId: id,
+          notificationType: template.type,
+          title: template.title,
+          message: finalMessage,
+        });
 
         if (!result.success) {
-          // Non-fatal: status update succeeded, but notification delivery failed
-          console.error("Notification insert failed:", result.error)
           setNotifWarning(
             `⚠️ Status was updated but the notification could not be sent: ` +
-            `${result.error?.message || "unknown error"}. ` +
-            (result.hint ? result.hint : "Check your notifications table schema.")
-          )
+              `${result.error?.message || "unknown error"}. ` +
+              `The applicant may not be aware of this change. Please notify them manually.`,
+          );
         }
+        // result.duplicate === true → already notified, silently ignore
       }
 
-      // 4. Update local state
-      setApp(prev => ({ ...prev, status: pendingStatus, admin_remarks: adminRemarks }))
-      setShowRemarkBox(false)
-      setPendingStatus("")
+      // 5. Update local state to reflect changes immediately
+      setApp((prev) => ({
+        ...prev,
+        status: pendingStatus,
+        admin_remarks: adminRemarks,
+        release_date:
+          pendingStatus === "released" ? releaseDate : prev.release_date,
+        released_to:
+          pendingStatus === "released" ? releasedTo : prev.released_to,
+      }));
+      setShowRemarkBox(false);
+      setPendingStatus("");
 
-      const extra = pendingStatus === "approved"
-        ? ` Franchise expires ${addYears(todayStr(), 3)}.`
-        : ""
+      let extra = "";
+      if (pendingStatus === "approved") {
+        extra = ` Franchise expires ${addYears(todayStr(), 3)}.`;
+      } else if (pendingStatus === "for_release") {
+        extra = ` Documents ready for applicant pickup.`;
+      } else if (pendingStatus === "released") {
+        extra = ` Released on ${new Date(releaseDate).toLocaleDateString("en-PH")}.`;
+      }
 
       setSuccessMsg(
-        `✅ Status updated to "${pendingStatus.replace(/_/g, " ")}" and applicant notified.${extra}`
-      )
+        `✅ Status updated to "${pendingStatus.replace(/_/g, " ")}" and applicant notified.${extra}`,
+      );
     } catch (err) {
-      setError("Status update failed: " + err.message)
+      setError("Status update failed: " + err.message);
     }
-    setStatusUpdating(false)
-  }
+    setStatusUpdating(false);
+  };
 
-  // ── Loading / error screens ───────────────────────────────────────────────
-  if (loading) return (
-    <AdminLayout>
-      <div className="flex items-center justify-center h-64 text-orange-500 font-semibold text-sm gap-2">
-        <span className="animate-spin text-2xl">⏳</span> Loading application details…
-      </div>
-    </AdminLayout>
-  )
+  // ── Loading / Error States ─────────────────────────────────────────────────
+  if (loading)
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center h-64 text-orange-500 font-semibold text-sm gap-2">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
+          <span>Loading application details…</span>
+        </div>
+      </AdminLayout>
+    );
 
-  if (error && !app) return (
-    <AdminLayout>
-      <div className="max-w-3xl mx-auto mt-10 bg-red-50 border border-red-300 text-red-700 p-6 rounded-xl text-sm">
-        <p className="font-bold mb-1">❌ Error</p>
-        <p>{error}</p>
-        <button onClick={() => navigate(-1)} className="mt-4 text-xs text-blue-600 hover:underline">← Go Back</button>
-      </div>
-    </AdminLayout>
-  )
+  if (error && !app)
+    return (
+      <AdminLayout>
+        <div className="max-w-3xl mx-auto mt-10 bg-red-50 border border-red-300 text-red-700 p-6 rounded-xl text-sm">
+          <p className="font-bold mb-1 flex items-center gap-2">
+            <XCircle size={18} /> Error
+          </p>
+          <p>{error}</p>
+          <button
+            onClick={() => navigate(-1)}
+            className="mt-4 text-xs text-blue-600 hover:underline flex items-center gap-1"
+          >
+            <ArrowLeft size={14} /> Go Back
+          </button>
+        </div>
+      </AdminLayout>
+    );
 
-  if (!app) return null
+  if (!app) return null;
 
-  const d         = app.details || {}
-  const docs      = d.documents || {}
-  const isRenewal = app.type === "renewal"
-  const profile   = app.profiles || {}
+  const d = app.details || {};
+  const docs = d.documents || {};
+  const isRenewal = app.type === "renewal";
+  const profile = app.profiles || {};
+  const currentFlow = STATUS_FLOW[app.status] || {};
 
   const officialDocs = [
-    { label: "Latest O.R. (Official Receipt) – LTO",     key: "or_latest" },
+    { label: "Latest O.R. (Official Receipt) – LTO", key: "or_latest" },
     { label: "Certificate of Registration (C.R.) – LTO", key: "cr" },
-    { label: "Cedula (Updated)",                          key: "cedula" },
-    { label: "Police Clearance",                          key: "police_clearance" },
-    { label: "Barangay Residency (Updated)",              key: "barangay_residency" },
-    { label: "Voter's Certification – COMELEC",           key: "voters_cert" },
-    { label: "Stencil ng Motor (Engine / Chassis)",       key: "stencil_motor" },
-  ]
+    { label: "Cedula (Updated)", key: "cedula" },
+    { label: "Police Clearance", key: "police_clearance" },
+    { label: "Barangay Residency (Updated)", key: "barangay_residency" },
+    { label: "Voter's Certification – COMELEC", key: "voters_cert" },
+    { label: "Stencil ng Motor (Engine / Chassis)", key: "stencil_motor" },
+  ];
+
   const tricyclePhotos = [
     { label: "Tricycle Condition (Overall)", key: "tricycle_condition" },
-    { label: "Left Signal Light",            key: "left_signal" },
-    { label: "Right Signal Light",           key: "right_signal" },
-    { label: "Head Light",                   key: "head_light" },
-    { label: "Tail Light",                   key: "tail_light" },
-    { label: "Ilaw sa Loob ng Sidecar",      key: "ilaw_sidecar" },
+    { label: "Left Signal Light", key: "left_signal" },
+    { label: "Right Signal Light", key: "right_signal" },
+    { label: "Head Light", key: "head_light" },
+    { label: "Tail Light", key: "tail_light" },
+    { label: "Ilaw sa Loob ng Sidecar", key: "ilaw_sidecar" },
     { label: "Basurahan sa Loob ng Sidecar", key: "basurahan_sidecar" },
-  ]
+  ];
+
   const garagePhotos = [
-    { label: "Garage Condition (Overall)",     key: "garage_condition" },
+    { label: "Garage Condition (Overall)", key: "garage_condition" },
     { label: "Garage / Garahe (with vehicle)", key: "garage_photo" },
-  ]
+  ];
+
   const statusButtons = [
-    { status: "under_review", label: "Mark Under Review", color: "bg-blue-500 hover:bg-blue-600",     icon: "🔍" },
-    { status: "approved",     label: "Approve",           color: "bg-green-500 hover:bg-green-600",   icon: "✅" },
-    { status: "rejected",     label: "Reject",            color: "bg-red-500 hover:bg-red-600",       icon: "❌" },
-    { status: "for_release",  label: "Mark For Release",  color: "bg-purple-500 hover:bg-purple-600", icon: "📤" },
-  ]
+    {
+      status: "under_review",
+      label: "Mark Under Review",
+      color: "bg-blue-500 hover:bg-blue-600",
+      icon: <Clock size={16} />,
+      description: "Move to review phase",
+    },
+    {
+      status: "approved",
+      label: "Approve Application",
+      color: "bg-green-500 hover:bg-green-600",
+      icon: <CheckCircle2 size={16} />,
+      description: "Approve & create franchise",
+    },
+    {
+      status: "rejected",
+      label: "Reject Application",
+      color: "bg-red-500 hover:bg-red-600",
+      icon: <XCircle size={16} />,
+      description: "Final rejection",
+    },
+    {
+      status: "for_release",
+      label: "Mark For Release",
+      color: "bg-purple-500 hover:bg-purple-600",
+      icon: <Package size={16} />,
+      description: "Documents ready for pickup",
+    },
+    {
+      status: "released",
+      label: "Mark as Released",
+      color: "bg-gray-700 hover:bg-gray-800",
+      icon: <CheckCircle2 size={16} />,
+      description: "Permit has been claimed",
+    },
+  ];
 
   return (
     <AdminLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <button onClick={() => navigate(-1)}
-          className="mb-5 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
-          ← Back
+        <button
+          onClick={() => navigate(-1)}
+          className="mb-5 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition"
+        >
+          <ArrowLeft size={16} /> Back to Applications
         </button>
 
         <div className="bg-white rounded-2xl shadow-md border-t-4 border-orange-500 p-8">
-
           {/* ── Header ── */}
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-8 pb-6 border-b border-gray-100">
             <div className="flex items-center gap-4">
               <div className="w-20 h-20 rounded-full border-4 border-orange-200 overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                {docs.owner_photo
-                  ? <img src={docs.owner_photo} alt="Owner" className="w-full h-full object-cover" />
-                  : <span className="text-4xl text-gray-300">👤</span>}
+                {docs.owner_photo ? (
+                  <img
+                    src={docs.owner_photo}
+                    alt="Owner"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-4xl text-gray-300">👤</span>
+                )}
               </div>
               <div>
                 <h1 className="text-xl font-extrabold text-blue-900">
                   {d.franchise_owner || profile.full_name || "—"}
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  {isRenewal ? "🔄 Franchise Renewal" : "📋 New Registration"}
-                  &nbsp;·&nbsp; Control No: <strong>{d.control_number || "—"}</strong>
+                  {isRenewal ? "🔄 Franchise Renewal" : "📋 New Registration"} ·
+                  Control No: <strong>{d.control_number || "—"}</strong>
                 </p>
                 <p className="text-xs text-gray-400 mt-1">
-                  Submitted: {new Date(app.created_at).toLocaleDateString("en-PH", {
-                    year: "numeric", month: "long", day: "numeric",
+                  Submitted:{" "}
+                  {new Date(app.created_at).toLocaleDateString("en-PH", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
                   })}
                 </p>
               </div>
             </div>
             <div className="flex flex-col items-start md:items-end gap-2">
-              <StatusBadge status={app.status} />
+              <div className="flex items-center gap-2">
+                <StatusBadge status={app.status} />
+                {currentFlow.locked && (
+                  <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg border border-gray-200">
+                    <Lock size={12} /> Locked
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-gray-400">
-                App ID: <span className="font-mono text-gray-500">{app.id}</span>
+                App ID:{" "}
+                <span className="font-mono text-gray-500">{app.id}</span>
               </p>
             </div>
           </div>
@@ -432,24 +804,40 @@ export default function AdminApplicationDetail() {
           {/* ── Personal Information ── */}
           <Section icon="👤" title="Personal Information">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Field label="Full Name / Franchise Owner" value={d.franchise_owner}         span="lg:col-span-2" />
-              <Field label="Control Number"              value={d.control_number} />
-              <Field label="Contact Number"              value={d.contact_number} />
-              <Field label="Email Address"               value={d.email || profile.email} />
-              <Field label="Address"                     value={d.address}                 span="sm:col-span-2 lg:col-span-3" />
-              <Field label="Date of Birth"               value={d.date_of_birth} />
-              <Field label="Place of Birth"              value={d.place_of_birth} />
-              <Field label="Civil Status"                value={d.civil_status} />
-              <Field label="Nationality"                 value={d.nationality} />
+              <Field
+                label="Full Name / Franchise Owner"
+                value={d.franchise_owner}
+                span="lg:col-span-2"
+              />
+              <Field label="Control Number" value={d.control_number} />
+              <Field label="Contact Number" value={d.contact_number} />
+              <Field label="Email Address" value={d.email || profile.email} />
+              <Field
+                label="Address"
+                value={d.address}
+                span="sm:col-span-2 lg:col-span-3"
+              />
+              <Field label="Date of Birth" value={d.date_of_birth} />
+              <Field label="Place of Birth" value={d.place_of_birth} />
+              <Field label="Civil Status" value={d.civil_status} />
+              <Field label="Nationality" value={d.nationality} />
             </div>
             {isRenewal && (
               <div className="mt-5 pt-4 border-t border-dashed border-emerald-200">
-                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3">🔄 Renewal-Specific Details</p>
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3">
+                  🔄 Renewal-Specific Details
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Field label="Old Owner (if transferred)" value={d.old_owner} />
-                  <Field label="Franchise Status"           value={d.franchise_status} />
-                  <Field label="Franchise Number"           value={d.franchise_number} />
-                  <Field label="Franchise Expiration"       value={d.franchise_expiration} />
+                  <Field
+                    label="Old Owner (if transferred)"
+                    value={d.old_owner}
+                  />
+                  <Field label="Franchise Status" value={d.franchise_status} />
+                  <Field label="Franchise Number" value={d.franchise_number} />
+                  <Field
+                    label="Franchise Expiration"
+                    value={d.franchise_expiration}
+                  />
                 </div>
               </div>
             )}
@@ -458,33 +846,41 @@ export default function AdminApplicationDetail() {
           {/* ── Motorcycle Information ── */}
           <Section icon="🏍️" title="Motorcycle Information">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Field label="Make (Brand)"          value={d.make}           span="sm:col-span-2" />
-              <Field label="Color"                 value={d.color} />
+              <Field label="Make (Brand)" value={d.make} span="sm:col-span-2" />
+              <Field label="Color" value={d.color} />
               <Field label="Motor / Engine Number" value={d.motor_no} />
-              <Field label="Chassis Number"        value={d.chassis_no} />
-              <Field label="Plate Number"          value={d.plate_no} />
-              <Field label="Classification"        value={d.classification} />
+              <Field label="Chassis Number" value={d.chassis_no} />
+              <Field label="Plate Number" value={d.plate_no} />
+              <Field label="Classification" value={d.classification} />
             </div>
           </Section>
 
+          {/* ── Documents ── */}
           <Section icon="📎" title="Uploaded Documents & Photos">
             <p className="text-xs text-gray-400 italic mb-4 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              📌 Click any image to enlarge. Use "Open / Download" to view the original file.
+              📌 Click any image to enlarge. Use "Open / Download" to view the
+              original file.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {officialDocs.map(doc => <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />)}
+              {officialDocs.map((doc) => (
+                <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />
+              ))}
             </div>
           </Section>
 
           <Section icon="🔧" title="Tricycle Condition Photos">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {tricyclePhotos.map(doc => <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />)}
+              {tricyclePhotos.map((doc) => (
+                <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />
+              ))}
             </div>
           </Section>
 
           <Section icon="🏠" title="Garage Condition Photos">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {garagePhotos.map(doc => <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />)}
+              {garagePhotos.map((doc) => (
+                <DocCard key={doc.key} label={doc.label} url={docs[doc.key]} />
+              ))}
             </div>
           </Section>
 
@@ -504,67 +900,218 @@ export default function AdminApplicationDetail() {
             </Section>
           )}
 
+          {/* Release Information */}
+          {app.status === "released" && (
+            <Section icon="✓" title="Release Information">
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field
+                    label="Release Date"
+                    value={
+                      app.release_date
+                        ? new Date(app.release_date).toLocaleDateString("en-PH")
+                        : "—"
+                    }
+                  />
+                  <Field label="Released To" value={app.released_to || "—"} />
+                </div>
+              </div>
+            </Section>
+          )}
+
           {/* ── Admin Actions ── */}
           <div className="pt-6 border-t border-gray-100">
-            <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-4">⚙️ Admin Actions</p>
+            <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+              ⚙️ Admin Actions
+            </p>
 
             {successMsg && (
-              <div className="bg-green-50 border border-green-300 text-green-700 text-sm rounded-xl px-4 py-3 mb-4">
-                {successMsg}
+              <div className="bg-green-50 border border-green-300 text-green-700 text-sm rounded-xl px-4 py-3 mb-4 flex items-start gap-2">
+                <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+                <span>{successMsg}</span>
               </div>
             )}
+
             {notifWarning && (
               <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 text-sm rounded-xl px-4 py-3 mb-4">
                 {notifWarning}
-                <p className="text-xs mt-1 text-yellow-600">
-                  Run <code className="bg-yellow-100 px-1 rounded">fix_notifications_table.sql</code> in Supabase to fix this permanently.
-                </p>
-              </div>
-            )}
-            {error && (
-              <div className="bg-red-50 border border-red-300 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">
-                {error}
               </div>
             )}
 
+            {error && (
+              <div className="bg-red-50 border border-red-300 text-red-700 text-sm rounded-xl px-4 py-3 mb-4 flex items-start gap-2">
+                <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Status Flow Info */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5 text-xs text-blue-700">
-              <p className="font-bold mb-1">ℹ️ Approval Auto-Actions</p>
-              <ul className="list-disc list-inside space-y-0.5 text-blue-600">
-                <li>Approving automatically <strong>creates or updates</strong> the franchise record.</li>
-                <li>Franchise validity is set to <strong>3 years</strong> from today.</li>
-                <li>For renewals, the existing record is <strong>reset</strong> to a new 3-year term.</li>
-                <li>The applicant receives an <strong>approval notification</strong> with their expiry date.</li>
-              </ul>
+              <p className="font-bold mb-2 flex items-center gap-1">
+                <Eye size={14} /> Status Flow Information
+              </p>
+              <div className="space-y-2">
+                <div>
+                  <span className="font-semibold">Current Status:</span>{" "}
+                  {currentFlow.description}
+                </div>
+                {currentFlow.allowedNext &&
+                  currentFlow.allowedNext.length > 0 && (
+                    <div>
+                      <span className="font-semibold">Available Actions:</span>{" "}
+                      {currentFlow.allowedNext
+                        .map((s) => s.replace(/_/g, " "))
+                        .join(", ")}
+                    </div>
+                  )}
+                {currentFlow.locked && (
+                  <div className="flex items-center gap-1 text-orange-600">
+                    <Lock size={12} />
+                    <span className="font-semibold">
+                      This status is locked and can only transition to specific
+                      states.
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
+            {/* Contextual Guidelines */}
+            {canTransitionTo(app.status, "approved") && (
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-5 text-xs text-green-700">
+                <p className="font-bold mb-1">✅ Approval Auto-Actions</p>
+                <ul className="list-disc list-inside space-y-0.5 text-green-600">
+                  <li>
+                    Approving automatically <strong>creates or updates</strong>{" "}
+                    the franchise record.
+                  </li>
+                  <li>
+                    Franchise validity is set to <strong>3 years</strong> from
+                    today.
+                  </li>
+                  <li>
+                    For renewals, the existing record is <strong>reset</strong>{" "}
+                    to a new 3-year term.
+                  </li>
+                  <li>
+                    The applicant receives an{" "}
+                    <strong>approval notification</strong> with their expiry
+                    date.
+                  </li>
+                  <li>
+                    After approval, you can mark it as{" "}
+                    <strong>"For Release"</strong> when documents are ready.
+                  </li>
+                </ul>
+              </div>
+            )}
+
+            {canTransitionTo(app.status, "for_release") && (
+              <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 mb-5 text-xs text-purple-700">
+                <p className="font-bold mb-1">📤 For Release Guidelines</p>
+                <ul className="list-disc list-inside space-y-0.5 text-purple-600">
+                  <li>
+                    Mark as "For Release" when all documents are{" "}
+                    <strong>prepared and ready for pickup</strong>.
+                  </li>
+                  <li>
+                    Applicant will be notified to visit the Municipal Hall.
+                  </li>
+                  <li>
+                    After the applicant claims the permit, mark it as{" "}
+                    <strong>"Released"</strong>.
+                  </li>
+                </ul>
+              </div>
+            )}
+
+            {/* Remark Box */}
             {showRemarkBox && (
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
                 <p className="text-xs font-semibold text-gray-600 mb-1">
-                  Add a remark before confirming{" "}
+                  {pendingStatus === "released"
+                    ? "Release Details"
+                    : "Add a remark"}{" "}
+                  before confirming{" "}
                   <span className="capitalize text-orange-600 font-bold">
                     {pendingStatus?.replace(/_/g, " ")}
-                  </span>:
+                  </span>
+                  :
                 </p>
-                <p className="text-xs text-gray-400 mb-2">
-                  This remark will be included in the notification sent to the applicant.
+                <p className="text-xs text-gray-400 mb-3">
+                  This information will be included in the notification sent to
+                  the applicant.
                 </p>
+
+                {pendingStatus === "released" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        Release Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={releaseDate}
+                        onChange={(e) => setReleaseDate(e.target.value)}
+                        max={todayStr()}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        Released To <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={releasedTo}
+                        onChange={(e) => setReleasedTo(e.target.value)}
+                        placeholder="Name of person who claimed"
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   value={adminRemarks}
-                  onChange={e => setAdminRemarks(e.target.value)}
-                  placeholder="Optional admin remarks / reason…"
+                  onChange={(e) => setAdminRemarks(e.target.value)}
+                  placeholder={
+                    pendingStatus === "released"
+                      ? "Optional release notes…"
+                      : "Optional admin remarks / reason…"
+                  }
                   rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 mb-3"
                 />
-                <div className="flex gap-3 mt-3">
+
+                <div className="flex gap-3">
                   <button
                     onClick={confirmStatusChange}
-                    disabled={statusUpdating}
-                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold py-2.5 rounded-xl transition disabled:opacity-60"
+                    disabled={
+                      statusUpdating ||
+                      (pendingStatus === "released" &&
+                        (!releaseDate || !releasedTo))
+                    }
+                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold py-2.5 rounded-xl transition disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    {statusUpdating ? "⏳ Updating…" : `✅ Confirm — ${pendingStatus?.replace(/_/g, " ").toUpperCase()}`}
+                    {statusUpdating ? (
+                      <>⏳ Updating…</>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={16} />
+                        Confirm —{" "}
+                        {pendingStatus?.replace(/_/g, " ").toUpperCase()}
+                      </>
+                    )}
                   </button>
                   <button
-                    onClick={() => { setShowRemarkBox(false); setPendingStatus("") }}
+                    onClick={() => {
+                      setShowRemarkBox(false);
+                      setPendingStatus("");
+                      setReleaseDate(todayStr());
+                    }}
                     className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-semibold transition"
                   >
                     Cancel
@@ -573,29 +1120,53 @@ export default function AdminApplicationDetail() {
               </div>
             )}
 
+            {/* Action Buttons */}
             <div className="flex flex-wrap gap-3">
-              {statusButtons.map(btn => (
-                <button
-                  key={btn.status}
-                  onClick={() => initiateStatusChange(btn.status)}
-                  disabled={app.status === btn.status || statusUpdating || showRemarkBox}
-                  className={`${btn.color} text-white text-sm font-bold px-5 py-2.5 rounded-xl transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed`}
-                >
-                  {btn.icon} {btn.label}
-                  {app.status === btn.status && (
-                    <span className="ml-1 text-xs font-normal opacity-75">(current)</span>
-                  )}
-                </button>
-              ))}
+              {statusButtons.map((btn) => {
+                const canTransition = canTransitionTo(app.status, btn.status);
+                const isCurrent = app.status === btn.status;
+                const isDisabled =
+                  !canTransition ||
+                  isCurrent ||
+                  statusUpdating ||
+                  showRemarkBox;
+
+                return (
+                  <button
+                    key={btn.status}
+                    onClick={() => initiateStatusChange(btn.status)}
+                    disabled={isDisabled}
+                    title={
+                      !canTransition && !isCurrent
+                        ? `Cannot transition from ${app.status} to ${btn.status}`
+                        : btn.description
+                    }
+                    className={`${btn.color} text-white text-sm font-bold px-5 py-2.5 rounded-xl transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2`}
+                  >
+                    {btn.icon}
+                    {btn.label}
+                    {isCurrent && (
+                      <span className="ml-1 text-xs font-normal opacity-75">
+                        (current)
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            <p className="text-xs text-gray-400 mt-4">
-              Current status: <StatusBadge status={app.status} />
-            </p>
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-xs text-gray-500 mb-2">
+                <strong>Current Status:</strong>{" "}
+                <StatusBadge status={app.status} />
+              </p>
+              <p className="text-xs text-gray-400">
+                {currentFlow.description || "Status information unavailable"}
+              </p>
+            </div>
           </div>
-
         </div>
       </div>
     </AdminLayout>
-  )
+  );
 }

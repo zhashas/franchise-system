@@ -1,9 +1,9 @@
+// src/pages/admin/AdminSettings.jsx
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
 import {
   Shield,
-  Bell,
   Database,
   FileText,
   Settings,
@@ -26,6 +26,9 @@ import {
   ExternalLink,
   Search,
   Tag,
+  Clock,
+  Server,
+  RefreshCw,
 } from "lucide-react";
 
 // ─── Documentation Data ───────────────────────────────────────────────────────
@@ -390,7 +393,7 @@ function DocumentationPortal({ onClose }) {
     setSearchQuery("");
   };
 
-  const Icon = activeSection.icon;
+  const SectionIcon = activeSection.icon;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -433,8 +436,7 @@ function DocumentationPortal({ onClose }) {
                   placeholder="Search docs…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-xs
-                    focus:outline-none focus:ring-2 focus:ring-orange-400 placeholder:text-gray-300"
+                  className="w-full bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 placeholder:text-gray-300"
                 />
               </div>
             </div>
@@ -469,7 +471,7 @@ function DocumentationPortal({ onClose }) {
             ) : (
               <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
                 {DOC_SECTIONS.map((sec) => {
-                  const SIcon = sec.icon;
+                  const SecIcon = sec.icon;
                   const isActive = activeSection.id === sec.id;
                   return (
                     <button
@@ -484,7 +486,7 @@ function DocumentationPortal({ onClose }) {
                           : "text-gray-500 hover:bg-white hover:text-gray-800"
                       }`}
                     >
-                      <SIcon
+                      <SecIcon
                         size={14}
                         className={isActive ? "text-orange-400" : sec.color}
                       />
@@ -559,7 +561,7 @@ function DocumentationPortal({ onClose }) {
                     <div
                       className={`w-9 h-9 rounded-xl ${activeSection.bg} flex items-center justify-center flex-shrink-0`}
                     >
-                      <Icon size={16} className={activeSection.color} />
+                      <SectionIcon size={16} className={activeSection.color} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
@@ -739,51 +741,113 @@ export default function AdminSettings() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [dbLatency, setDbLatency] = useState(null);
   const [dbStatus, setDbStatus] = useState("checking");
+  const [dbCheckedAt, setDbCheckedAt] = useState(null);
   const [profile, setProfile] = useState(null);
   const [showDocs, setShowDocs] = useState(false);
+  const [pinging, setPinging] = useState(false);
 
+  // ── Load profile ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+
+    async function load() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
+
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, email, role")
+        .select("full_name, email, role, created_at")
         .eq("id", user.id)
         .single();
-      setProfile(
-        data || { full_name: "User", email: user.email, role: "admin" },
-      );
-    };
+
+      if (!cancelled) {
+        setProfile(
+          data || { full_name: "User", email: user.email, role: "admin" },
+        );
+      }
+    }
+
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // ── DB ping on mount — logic inlined to avoid calling setState via
+  //    an external function reference, which triggers the ESLint rule ──────
   useEffect(() => {
-    const ping = async () => {
+    let cancelled = false;
+
+    async function ping() {
+      if (cancelled) return;
+      setPinging(true);
+      setDbStatus("checking");
+
       const start = Date.now();
       try {
-        const { error } = await supabase
+        const { error: pingError } = await supabase
           .from("profiles")
           .select("id")
           .limit(1)
           .single();
+
+        if (cancelled) return;
+
         const ms = Date.now() - start;
         setDbLatency(ms);
-        setDbStatus(error ? "error" : "ok");
+        setDbStatus(pingError ? "error" : "ok");
+        setDbCheckedAt(
+          new Date().toLocaleTimeString("en-PH", { hour12: true }),
+        );
       } catch {
-        setDbStatus("error");
-        setDbLatency(null);
+        if (!cancelled) {
+          setDbStatus("error");
+          setDbLatency(null);
+        }
+      } finally {
+        if (!cancelled) setPinging(false);
       }
-    };
-    ping();
-  }, []);
+    }
 
+    ping();
+    return () => {
+      cancelled = true;
+    };
+  }, []); // ✅ empty deps — runs once on mount, no external fn reference
+
+  // ── Manual re-ping (button handler — not inside an effect) ───────────────
+  const handleReping = async () => {
+    setPinging(true);
+    setDbStatus("checking");
+
+    const start = Date.now();
+    try {
+      const { error: pingError } = await supabase
+        .from("profiles")
+        .select("id")
+        .limit(1)
+        .single();
+
+      const ms = Date.now() - start;
+      setDbLatency(ms);
+      setDbStatus(pingError ? "error" : "ok");
+      setDbCheckedAt(new Date().toLocaleTimeString("en-PH", { hour12: true }));
+    } catch {
+      setDbStatus("error");
+      setDbLatency(null);
+    } finally {
+      setPinging(false);
+    }
+  };
+
+  // ── Password change ───────────────────────────────────────────────────────
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setMessage("");
     setError("");
+
     if (newPassword !== confirmPassword) {
       setError("Passphrases do not match.");
       return;
@@ -792,10 +856,12 @@ export default function AdminSettings() {
       setError("Passphrase must be at least 6 characters.");
       return;
     }
+
     setLoading(true);
     const { error: updateError } = await supabase.auth.updateUser({
       password: newPassword,
     });
+
     if (updateError) {
       setError(updateError.message);
     } else {
@@ -806,6 +872,7 @@ export default function AdminSettings() {
     setLoading(false);
   };
 
+  // ── Password strength ─────────────────────────────────────────────────────
   const strengthScore = () => {
     if (!newPassword) return 0;
     let s = 0;
@@ -816,6 +883,7 @@ export default function AdminSettings() {
     if (/[^A-Za-z0-9]/.test(newPassword)) s++;
     return s;
   };
+
   const strengthLabel = [
     "",
     "Very Weak",
@@ -834,19 +902,38 @@ export default function AdminSettings() {
   ];
   const score = strengthScore();
 
+  // ── DB table rows ─────────────────────────────────────────────────────────
+  const dbTables = [
+    { label: "Profiles table", icon: Users },
+    { label: "Applications table", icon: ClipboardList },
+    { label: "Notifications table", icon: Database },
+    { label: "Activity logs", icon: Activity },
+    { label: "Appointments table", icon: Calendar },
+    { label: "Franchises table", icon: Shield },
+  ];
+
+  // ── Profile initials ──────────────────────────────────────────────────────
+  const initials = (profile?.full_name || "U")
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() || "")
+    .join("");
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <AdminLayout>
       {showDocs && <DocumentationPortal onClose={() => setShowDocs(false)} />}
 
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Page Header */}
+        {/* ── Page Header ── */}
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              PASSWORD<span className="text-orange-500">MANNAGEMENT.</span>
+              ACCOUNT <span className="text-orange-500">SETTINGS.</span>
             </h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              Configure global administrative parameters and security.
+              Manage your credentials, monitor database health, and access
+              system documentation.
             </p>
           </div>
           <div className="flex items-center gap-2 text-right">
@@ -862,8 +949,9 @@ export default function AdminSettings() {
           </div>
         </div>
 
+        {/* ── Main Grid: 2 + 1 ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left 2 cols */}
+          {/* ══ LEFT: 2-col span ══ */}
           <div className="lg:col-span-2 space-y-5">
             {/* Identity Defense */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -874,14 +962,14 @@ export default function AdminSettings() {
                   </div>
                   <div>
                     <p className="text-sm font-black text-gray-900 uppercase tracking-wide">
-                      Security And Identity Protection
+                      Security & Identity Protection
                     </p>
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest">
-                      Upgrade your access credentials.
+                      Upgrade your access credentials
                     </p>
                   </div>
                 </div>
-                <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">
+                <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-lg">
                   Secure Line
                 </span>
               </div>
@@ -889,13 +977,13 @@ export default function AdminSettings() {
               <div className="px-6 pt-5">
                 {message && (
                   <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl mb-4 text-xs font-semibold">
-                    <CheckCircle size={14} />
+                    <CheckCircle size={14} className="flex-shrink-0" />
                     {message}
                   </div>
                 )}
                 {error && (
                   <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl mb-4 text-xs font-semibold">
-                    <AlertCircle size={14} />
+                    <AlertCircle size={14} className="flex-shrink-0" />
                     {error}
                   </div>
                 )}
@@ -906,6 +994,7 @@ export default function AdminSettings() {
                 className="px-6 pb-6 space-y-4"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* New password */}
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
                       New Passphrase
@@ -916,9 +1005,7 @@ export default function AdminSettings() {
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="Min. 6 alphanumeric chars"
-                        className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10
-                          focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400
-                          placeholder:text-gray-300 transition"
+                        className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-gray-300 transition"
                         required
                       />
                       <button
@@ -935,18 +1022,30 @@ export default function AdminSettings() {
                           {[1, 2, 3, 4, 5].map((i) => (
                             <div
                               key={i}
-                              className={`h-1 flex-1 rounded-full transition-all duration-300 ${i <= score ? strengthColor[score] : "bg-gray-100"}`}
+                              className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                                i <= score
+                                  ? strengthColor[score]
+                                  : "bg-gray-100"
+                              }`}
                             />
                           ))}
                         </div>
                         <p
-                          className={`text-[10px] font-bold ${score <= 2 ? "text-red-500" : score === 3 ? "text-yellow-500" : "text-green-500"}`}
+                          className={`text-[10px] font-bold ${
+                            score <= 2
+                              ? "text-red-500"
+                              : score === 3
+                                ? "text-yellow-500"
+                                : "text-green-500"
+                          }`}
                         >
                           {strengthLabel[score]}
                         </p>
                       </div>
                     )}
                   </div>
+
+                  {/* Confirm password */}
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
                       Verify Cipher
@@ -957,13 +1056,11 @@ export default function AdminSettings() {
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="Retype passphrase"
-                        className={`w-full border bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10
-                          focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400
-                          placeholder:text-gray-300 transition ${
-                            confirmPassword && confirmPassword !== newPassword
-                              ? "border-red-300"
-                              : "border-gray-200"
-                          }`}
+                        className={`w-full border bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-gray-300 transition ${
+                          confirmPassword && confirmPassword !== newPassword
+                            ? "border-red-300"
+                            : "border-gray-200"
+                        }`}
                         required
                       />
                       <button
@@ -986,12 +1083,11 @@ export default function AdminSettings() {
                     )}
                   </div>
                 </div>
+
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50
-                    disabled:cursor-not-allowed text-white py-3 rounded-xl font-black text-sm
-                    uppercase tracking-widest transition shadow-sm flex items-center justify-center gap-2"
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-black text-sm uppercase tracking-widest transition shadow-sm flex items-center justify-center gap-2"
                 >
                   {loading && (
                     <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -1003,125 +1099,220 @@ export default function AdminSettings() {
               </form>
             </div>
 
-            {/* Alert + DB row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div className="flex items-start justify-between mb-4">
+            {/* ── Database Health Monitor ── */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                    <Bell size={18} className="text-gray-500" />
+                    <Server size={18} className="text-blue-500" />
                   </div>
-                  <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
-                    Active
-                  </span>
+                  <div>
+                    <p className="text-sm font-black text-gray-900 uppercase tracking-wide">
+                      Database Health Monitor
+                    </p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest">
+                      Supabase ledger connectivity & latency
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs font-black text-gray-900 uppercase tracking-wide">
-                  Alert Preferences
-                </p>
-                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">
-                  Configure SMS and email notification triggers.
-                </p>
-                <div className="mt-4 space-y-2">
-                  {[
-                    { label: "New application alerts", on: true },
-                    { label: "Appointment reminders", on: true },
-                    { label: "Expiry notifications", on: true },
-                    { label: "System broadcast", on: false },
-                  ].map(({ label, on }) => (
-                    <div
-                      key={label}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="text-xs text-gray-500">{label}</span>
-                      <div
-                        className={`w-8 h-4 rounded-full ${on ? "bg-orange-400" : "bg-gray-200"} flex items-center px-0.5`}
-                      >
-                        <div
-                          className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${on ? "translate-x-4" : "translate-x-0"}`}
-                        />
-                      </div>
+                <div className="flex items-center gap-3">
+                  {dbCheckedAt && (
+                    <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                      <Clock size={10} />
+                      <span>Checked {dbCheckedAt}</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                    <Database size={18} className="text-gray-500" />
-                  </div>
+                  )}
                   <span
-                    className={`text-[10px] font-black uppercase tracking-widest ${
+                    className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border ${
                       dbStatus === "ok"
-                        ? "text-green-500"
+                        ? "text-green-600 bg-green-50 border-green-200"
                         : dbStatus === "error"
-                          ? "text-red-500"
-                          : "text-gray-400"
+                          ? "text-red-600 bg-red-50 border-red-200"
+                          : "text-gray-400 bg-gray-50 border-gray-200"
                     }`}
                   >
                     {dbStatus === "checking"
                       ? "Checking…"
                       : dbStatus === "ok"
-                        ? `Latency: ${dbLatency}ms`
+                        ? `${dbLatency}ms`
                         : "Unreachable"}
                   </span>
                 </div>
-                <p className="text-xs font-black text-gray-900 uppercase tracking-wide">
-                  Database Sync
-                </p>
-                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">
-                  Verify Supabase ledger connectivity and latency.
-                </p>
-                <div className="mt-4 space-y-2">
-                  {[
-                    "Profiles table",
-                    "Applications table",
-                    "Notifications table",
-                    "Activity logs",
-                  ].map((label) => (
-                    <div
-                      key={label}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="text-xs text-gray-500">{label}</span>
+              </div>
+
+              <div className="px-6 py-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                  {dbTables.map(({ label, icon }) => {
+                    const TableIcon = icon;
+                    return (
                       <div
-                        className={`flex items-center gap-1 text-[10px] font-bold ${dbStatus === "ok" ? "text-green-500" : "text-red-400"}`}
+                        key={label}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border ${
+                          dbStatus === "ok"
+                            ? "bg-green-50 border-green-100"
+                            : dbStatus === "error"
+                              ? "bg-red-50 border-red-100"
+                              : "bg-gray-50 border-gray-100"
+                        }`}
                       >
-                        <Wifi size={10} />
-                        {dbStatus === "ok" ? "Synced" : "Error"}
+                        <TableIcon
+                          size={13}
+                          className={
+                            dbStatus === "ok"
+                              ? "text-green-500"
+                              : dbStatus === "error"
+                                ? "text-red-400"
+                                : "text-gray-300"
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold text-gray-700 truncate">
+                            {label}
+                          </p>
+                          <div
+                            className={`flex items-center gap-1 text-[9px] font-bold mt-0.5 ${
+                              dbStatus === "ok"
+                                ? "text-green-500"
+                                : dbStatus === "error"
+                                  ? "text-red-400"
+                                  : "text-gray-300"
+                            }`}
+                          >
+                            <Wifi size={8} />
+                            {dbStatus === "ok"
+                              ? "Synced"
+                              : dbStatus === "error"
+                                ? "Error"
+                                : "…"}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
+                {/* Re-check button — calls handler directly, not via effect */}
+                <button
+                  onClick={handleReping}
+                  disabled={pinging}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-bold text-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw
+                    size={13}
+                    className={pinging ? "animate-spin" : ""}
+                  />
+                  {pinging ? "Pinging…" : "Re-check Connectivity"}
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Right col */}
+          {/* ══ RIGHT: 1-col span ══ */}
           <div className="space-y-5">
+            {/* Admin Identity Card */}
+            <div className="bg-gray-900 rounded-2xl p-6 shadow-lg">
+              <div className="flex items-start justify-between mb-5">
+                <div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    ADMIN
+                  </p>
+                  <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mt-0.5">
+                    Full Control Access
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
+                  <Shield size={18} className="text-orange-400" />
+                </div>
+              </div>
+
+              {profile ? (
+                <div className="space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-orange-500/20 border-2 border-orange-500/30 flex items-center justify-center">
+                    <span className="text-xl font-black text-orange-400">
+                      {initials}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-base font-black text-white leading-tight">
+                      {profile.full_name}
+                    </p>
+                    {/* ✅ Fixed: removed conflicting uppercase + capitalize */}
+                    <p className="text-[10px] text-orange-400 font-bold uppercase tracking-widest mt-0.5">
+                      {profile.role}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1 truncate">
+                      {profile.email}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-2">
+                    <div className="bg-white/5 rounded-xl px-3 py-2">
+                      <p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">
+                        System
+                      </p>
+                      <p className="text-xs text-white font-bold mt-0.5">
+                        eFranchise
+                      </p>
+                    </div>
+                    <div className="bg-white/5 rounded-xl px-3 py-2">
+                      <p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">
+                        Version
+                      </p>
+                      <p className="text-xs text-orange-400 font-bold mt-0.5">
+                        v1.0.0
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="h-4 bg-white/10 rounded-lg animate-pulse"
+                    />
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-4 border-t border-white/10 mt-4">
+                <p className="text-[10px] text-gray-500 font-mono">
+                  San Jose, Occ. Mindoro
+                </p>
+                <Info size={12} className="text-gray-500" />
+              </div>
+            </div>
+
             {/* Documentation Portal */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-100 mb-4">
-                <FileText size={18} className="text-gray-400" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <FileText size={18} className="text-gray-500" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                    Documentation Portal
+                  </p>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">
+                    Admin Manual & Reference
+                  </p>
+                </div>
               </div>
-              <p className="text-xs font-black text-gray-900 uppercase tracking-wide">
-                Documentation Portal
+
+              <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                Access the complete system reference guide including staff
+                management procedures, application workflows, RLS policies, and
+                troubleshooting documentation.
               </p>
-              <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1 leading-relaxed">
-                Review guidelines for staff management and technical auditing
-                protocol.
-                <br />
-                <br />
-                <br />
-                <br />
-              </p>
+              <br />
+              <br />
 
               <button
                 onClick={() => setShowDocs(true)}
-                className="mt-4 w-full flex items-center justify-between px-3 py-2.5 rounded-xl
-                  bg-gray-900 hover:bg-gray-800 text-white transition group"
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white transition group"
               >
                 <span className="text-[10px] font-black uppercase tracking-widest">
-                  Admin Manual
+                  Open Admin Manual
                 </span>
                 <ExternalLink
                   size={12}
@@ -1130,48 +1321,33 @@ export default function AdminSettings() {
               </button>
             </div>
 
-            {/* Core Alpha node */}
-            <div className="bg-white rounded-2xl p-6 text-white space-y-4 shadow-lg">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-[10px] font-black text-black uppercase tracking-widest">
-                    ADMIN
-                  </p>
-                  <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">
-                    FULL CONTROL
-                  </p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
-                  <Shield size={18} className="text-orange-400" />
-                </div>
-              </div>
-              <div className="pt-2 border-t border-white/10">
-                <p className="text-xs text-black leading-relaxed">
-                  Tricycle eFranchise System for the Municipality
-                  <br />
-                  of San Jose, Occidental Mindoro.PH
+            {/* Security Tips */}
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Lock size={14} className="text-orange-500" />
+                <p className="text-xs font-black text-orange-800 uppercase tracking-wide">
+                  Security Tips
                 </p>
               </div>
-              {profile && (
-                <div className="pt-2 border-t border-white/10 space-y-1">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
-                    Authenticated as
-                  </p>
-                  <p className="text-sm font-bold text-white truncate">
-                    {profile.full_name}
-                  </p>
-                  <p className="text-[10px] text-orange-400 font-semibold capitalize">
-                    {profile.role}
-                  </p>
-                  <p className="text-[10px] text-gray-500 truncate">
-                    {profile.email}
-                  </p>
-                </div>
-              )}
-              <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                <p className="text-[10px] text-gray-500 font-mono">V 1.0.0</p>
-                <Info size={12} className="text-gray-500" />
-              </div>
+              <ul className="space-y-2">
+                {[
+                  "Change your password every 90 days",
+                  "Never share your credentials",
+                  "Log out on shared workstations",
+                  "Use 10+ character passphrases",
+                  "Report suspicious activity immediately",
+                ].map((tip) => (
+                  <li key={tip} className="flex items-start gap-2">
+                    <CheckCircle
+                      size={11}
+                      className="text-orange-400 mt-0.5 flex-shrink-0"
+                    />
+                    <span className="text-[11px] text-orange-700 leading-relaxed">
+                      {tip}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

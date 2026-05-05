@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
-import { Calendar, X, ChevronRight, ClipboardList, Check } from "lucide-react";
+import {
+  Calendar,
+  X,
+  ChevronRight,
+  ClipboardList,
+  Check,
+  Edit2,
+} from "lucide-react";
 
 export default function AdminAppointments() {
   const [appointments, setAppointments] = useState([]);
@@ -16,10 +23,12 @@ export default function AdminAppointments() {
     scheduled_date: "",
     scheduled_time: "",
     notes: "",
+    status: "confirmed",
   });
   const [selectedApplicantApps, setSelectedApplicantApps] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [timeConfirmed, setTimeConfirmed] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState(null);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = async () => {
@@ -70,6 +79,29 @@ export default function AdminAppointments() {
     setSelectedApplicantApps(apps || []);
   };
 
+  const handleEditClick = async (appointment) => {
+    setEditingAppointment(appointment);
+    setFormData({
+      applicant_id: appointment.applicant_id,
+      application_id: appointment.application_id || "",
+      scheduled_date: appointment.scheduled_date,
+      scheduled_time: appointment.scheduled_time,
+      notes: appointment.notes || "",
+      status: appointment.status,
+    });
+    setTimeConfirmed(true);
+
+    // Fetch applications for this applicant
+    const { data: apps } = await supabase
+      .from("applications")
+      .select("*")
+      .eq("applicant_id", appointment.applicant_id)
+      .order("submitted_at", { ascending: false });
+    setSelectedApplicantApps(apps || []);
+
+    setShowModal(true);
+  };
+
   const handleSchedule = async (e) => {
     e.preventDefault();
     if (!timeConfirmed && formData.scheduled_time) {
@@ -82,41 +114,78 @@ export default function AdminAppointments() {
         (a) => a.id === formData.application_id,
       );
 
-      await supabase.from("appointments").insert({
-        applicant_id: formData.applicant_id,
-        application_id: formData.application_id || null,
-        scheduled_date: formData.scheduled_date,
-        scheduled_time: formData.scheduled_time,
-        notes: formData.notes,
-        status: "confirmed",
-      });
-
-      await supabase.from("notifications").insert({
-        recipient_id: formData.applicant_id,
-        recipient_type: "applicant",
-        sender_type: "admin",
-        notification_type: "appointment",
-        title: "📅 Appointment Scheduled!",
-        message: `Your appointment has been scheduled on ${new Date(
-          formData.scheduled_date,
-        ).toLocaleDateString("en-PH", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })} at ${formData.scheduled_time}. ${
-          formData.notes
-            ? "Note: " + formData.notes
-            : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
-        }`,
-        is_read: false,
-      });
-
-      if (selectedApp?.status === "pending") {
+      if (editingAppointment) {
+        // Update existing appointment
         await supabase
-          .from("applications")
-          .update({ status: "under_review" })
-          .eq("id", formData.application_id);
+          .from("appointments")
+          .update({
+            applicant_id: formData.applicant_id,
+            application_id: formData.application_id || null,
+            scheduled_date: formData.scheduled_date,
+            scheduled_time: formData.scheduled_time,
+            notes: formData.notes,
+            status: formData.status,
+          })
+          .eq("id", editingAppointment.id);
+
+        await supabase.from("notifications").insert({
+          recipient_id: formData.applicant_id,
+          recipient_type: "applicant",
+          sender_type: "admin",
+          notification_type: "appointment",
+          title: "📅 Appointment Updated!",
+          message: `Your appointment has been updated to ${new Date(
+            formData.scheduled_date,
+          ).toLocaleDateString("en-PH", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })} at ${formData.scheduled_time}. ${
+            formData.notes
+              ? "Note: " + formData.notes
+              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
+          }`,
+          is_read: false,
+        });
+      } else {
+        // Create new appointment
+        await supabase.from("appointments").insert({
+          applicant_id: formData.applicant_id,
+          application_id: formData.application_id || null,
+          scheduled_date: formData.scheduled_date,
+          scheduled_time: formData.scheduled_time,
+          notes: formData.notes,
+          status: "confirmed",
+        });
+
+        await supabase.from("notifications").insert({
+          recipient_id: formData.applicant_id,
+          recipient_type: "applicant",
+          sender_type: "admin",
+          notification_type: "appointment",
+          title: "📅 Appointment Scheduled!",
+          message: `Your appointment has been scheduled on ${new Date(
+            formData.scheduled_date,
+          ).toLocaleDateString("en-PH", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })} at ${formData.scheduled_time}. ${
+            formData.notes
+              ? "Note: " + formData.notes
+              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
+          }`,
+          is_read: false,
+        });
+
+        if (selectedApp?.status === "pending") {
+          await supabase
+            .from("applications")
+            .update({ status: "under_review" })
+            .eq("id", formData.application_id);
+        }
       }
 
       closeModal();
@@ -135,12 +204,14 @@ export default function AdminAppointments() {
     setShowModal(false);
     setSelectedApplicantApps([]);
     setTimeConfirmed(false);
+    setEditingAppointment(null);
     setFormData({
       applicant_id: "",
       application_id: "",
       scheduled_date: "",
       scheduled_time: "",
       notes: "",
+      status: "confirmed",
     });
   };
 
@@ -314,15 +385,24 @@ export default function AdminAppointments() {
                   {filtered.map((apt) => (
                     <tr
                       key={apt.id}
-                      className="hover:bg-gray-50/60 transition-colors"
+                      onClick={() => handleEditClick(apt)}
+                      className="hover:bg-gray-50/60 transition-colors cursor-pointer group"
                     >
                       <td className="px-5 py-4">
-                        <p className="text-sm font-bold text-gray-900">
-                          {apt.profiles?.full_name}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {apt.profiles?.email}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <p className="text-sm font-bold text-gray-900">
+                              {apt.profiles?.full_name}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {apt.profiles?.email}
+                            </p>
+                          </div>
+                          <Edit2
+                            size={14}
+                            className="text-gray-300 group-hover:text-gray-500 transition opacity-0 group-hover:opacity-100"
+                          />
+                        </div>
                       </td>
                       <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">
                         {new Date(apt.scheduled_date).toLocaleDateString(
@@ -348,7 +428,10 @@ export default function AdminAppointments() {
                         </span>
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
+                        <div
+                          className="flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {apt.status !== "completed" &&
                             apt.status !== "cancelled" && (
                               <button
@@ -374,7 +457,7 @@ export default function AdminAppointments() {
                           {(apt.status === "completed" ||
                             apt.status === "cancelled") && (
                             <span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest">
-                              —
+                              Locked
                             </span>
                           )}
                         </div>
@@ -427,15 +510,19 @@ export default function AdminAppointments() {
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
                 <h2 className="text-base font-black text-gray-900">
-                  Initialize Schedule
+                  {editingAppointment
+                    ? "Edit Appointment"
+                    : "Initialize Schedule"}
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Fill in the details to notify the applicant.
+                  {editingAppointment
+                    ? "Update appointment details"
+                    : "Fill in the details to notify the applicant."}
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center text-lg">
-                  📅
+                  {editingAppointment ? "✏️" : "📅"}
                 </div>
                 <button
                   onClick={closeModal}
@@ -459,7 +546,8 @@ export default function AdminAppointments() {
                   value={formData.applicant_id}
                   onChange={handleApplicantChange}
                   required
-                  className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
+                  disabled={editingAppointment !== null}
+                  className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <option value="">— Select applicant —</option>
                   {applicants.map((a) => (
@@ -468,6 +556,11 @@ export default function AdminAppointments() {
                     </option>
                   ))}
                 </select>
+                {editingAppointment && (
+                  <p className="text-[10px] text-gray-400 mt-1 font-medium">
+                    Applicant cannot be changed when editing
+                  </p>
+                )}
               </div>
 
               {/* Select Application */}
@@ -588,6 +681,26 @@ export default function AdminAppointments() {
                 />
               </div>
 
+              {/* Status (only when editing) */}
+              {editingAppointment && (
+                <div>
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                    Status <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleChange}
+                    required
+                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
+                  >
+                    <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              )}
+
               {/* Submit buttons */}
               <div className="flex gap-3 pt-1">
                 <button
@@ -595,7 +708,13 @@ export default function AdminAppointments() {
                   disabled={submitting}
                   className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white font-black text-sm py-3 rounded-xl transition shadow"
                 >
-                  {submitting ? "Scheduling…" : "Schedule & Notify"}
+                  {submitting
+                    ? editingAppointment
+                      ? "Updating…"
+                      : "Scheduling…"
+                    : editingAppointment
+                      ? "Update & Notify"
+                      : "Schedule & Notify"}
                 </button>
                 <button
                   type="button"
