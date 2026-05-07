@@ -12,7 +12,7 @@ export default function Register() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false); // ← tracks "check your email" state
+  const [submitted, setSubmitted] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -23,7 +23,7 @@ export default function Register() {
     e.preventDefault();
     setError("");
 
-    // ── Validate passwords match ───────────────────────────────────────────
+    // Validate passwords
     if (formData.password !== formData.confirm_password) {
       setError("Passwords do not match.");
       return;
@@ -36,68 +36,45 @@ export default function Register() {
 
     setLoading(true);
 
-    // ── Step 1: Create the auth user ───────────────────────────────────────
-    // Pass profile fields in `options.data` so the DB trigger (if any) or
-    // the post-confirmation callback can create the profile row automatically.
-    // We also attempt a manual insert below for setups without a trigger.
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          full_name: formData.full_name,
-          phone: formData.phone,
-          role: "applicant",
-        },
-      },
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
-      setLoading(false);
-      return;
-    }
-
-    // ── Step 2: Insert the profile row (only when there is a live session) ─
-    // If email confirmation is ON  → data.session is null, so we skip the
-    //   insert here.  The profile should be created via a Supabase DB trigger
-    //   on auth.users (recommended), or on first login after confirmation.
-    // If email confirmation is OFF → data.session is populated, insert now.
-    if (data.session && data.user) {
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        full_name: formData.full_name,
+    try {
+      // Create auth user - trigger will auto-create profile
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
-        phone: formData.phone,
-        role: "applicant",
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.full_name,
+            phone: formData.phone,
+            role: "applicant",
+          },
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
       });
 
-      if (profileError) {
-        // Non-fatal in most cases (e.g. trigger already created the row),
-        // but surface real errors in the console.
-        console.warn(
-          "[Register] profile insert warning:",
-          profileError.message,
-        );
+      if (signUpError) throw signUpError;
+
+      // If session exists (email confirmation disabled)
+      if (data.session && data.user) {
+        setLoading(false);
+        navigate("/applicant/dashboard");
+        return;
       }
 
-      // Session exists → user is already authenticated → go to dashboard
+      // Email confirmation required - show success message
       setLoading(false);
-      navigate("/applicant/dashboard");
-      return;
+      setSubmitted(true);
+    } catch (err) {
+      console.error("[Register] Error:", err);
+      setError(err.message || "Registration failed. Please try again.");
+      setLoading(false);
     }
-
-    // ── Step 3: No session → email confirmation is required ───────────────
-    // Show the "check your inbox" screen instead of redirecting anywhere.
-    setLoading(false);
-    setSubmitted(true);
   };
 
-  // ── "Check your email" screen ─────────────────────────────────────────────
+  // Email confirmation screen
   if (submitted) {
     return (
       <div className="min-h-screen flex">
-        {/* Left panel (same as form) */}
+        {/* Left Panel */}
         <div className="hidden md:flex w-1/2 bg-blue-900 flex-col items-center justify-center p-10 text-white">
           <div className="bg-orange-500 p-4 rounded-full mb-6">
             <svg
@@ -126,11 +103,10 @@ export default function Register() {
           </p>
         </div>
 
-        {/* Right panel — confirmation notice */}
+        {/* Right Panel - Confirmation */}
         <div className="w-full md:w-1/2 flex items-center justify-center bg-gray-50 p-8">
           <div className="w-full max-w-md">
             <div className="bg-white rounded-xl shadow-lg p-8 border-t-4 border-orange-500 text-center">
-              {/* Email icon */}
               <div className="mx-auto mb-5 w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -156,7 +132,6 @@ export default function Register() {
                 <span className="font-semibold text-gray-700">
                   {formData.email}
                 </span>
-                .
               </p>
               <p className="text-gray-400 text-xs mb-6">
                 Click the link in that email to activate your account, then come
@@ -190,7 +165,7 @@ export default function Register() {
     );
   }
 
-  // ── Registration form ─────────────────────────────────────────────────────
+  // Registration form
   return (
     <div className="min-h-screen flex">
       {/* Left Panel */}
@@ -220,6 +195,22 @@ export default function Register() {
         <p className="text-blue-300 text-center text-xs mt-2">
           Municipality of San Jose, Occidental Mindoro
         </p>
+
+        <div className="mt-10 space-y-3 w-full max-w-xs">
+          {[
+            "🛺 Apply for tricycle franchise online",
+            "🔄 Renew existing franchises easily",
+            "📋 Track your application status",
+            "📅 Schedule appointments with the office",
+          ].map((text, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 bg-blue-800/50 rounded-xl px-4 py-2.5"
+            >
+              <span className="text-sm text-blue-100">{text}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Right Panel */}
@@ -301,7 +292,7 @@ export default function Register() {
                 <input
                   type="tel"
                   name="phone"
-                  placeholder="Enter your phone number"
+                  placeholder="09XX XXX XXXX"
                   className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition"
                   value={formData.phone}
                   onChange={handleChange}

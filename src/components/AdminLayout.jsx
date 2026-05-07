@@ -557,10 +557,17 @@ export default function AdminLayout({ children }) {
     let channel;
     let cancelled = false;
 
+    // ✅ FIXED: Added recipient_id filter
     async function loadUnread() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
+        .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
         .eq("recipient_type", "admin")
         .eq("is_read", false)
         .order("created_at", { ascending: false })
@@ -675,12 +682,20 @@ export default function AdminLayout({ children }) {
     }
   };
 
+  // ✅ FIXED: Added recipient_id filter
   const markAllAsRead = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
     await supabase
       .from("notifications")
       .update({ is_read: true })
+      .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
       .eq("recipient_type", "admin")
       .eq("is_read", false);
+
     setBellNotifs([]);
     setUnreadCount(0);
   };

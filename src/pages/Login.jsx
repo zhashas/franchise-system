@@ -17,54 +17,60 @@ export default function Login() {
     setLoading(true);
     setStep("credentials");
 
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (authError) {
-      setError(authError.message);
-      setLoading(false);
-      return;
-    }
-
-    setStep("fetching_role");
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("role, full_name")
-      .eq("id", data.user.id)
-      .single();
-
-    if (profileError || !profile) {
-      setError("Could not retrieve your account role. Please contact support.");
-      await supabase.auth.signOut();
-      setLoading(false);
-      return;
-    }
-
     try {
-      await logActivity({
-        action: "login",
-        details: `${profile.full_name || email} signed in as ${profile.role}`,
-      });
-    } catch (logErr) {
-      console.warn("[Login] logActivity failed:", logErr?.message);
-    }
-
-    const role = profile.role?.toLowerCase();
-
-    if (role === "admin") navigate("/admin/dashboard");
-    else if (role === "staff") navigate("/staff/dashboard");
-    else if (role === "applicant") navigate("/applicant/dashboard");
-    else {
-      setError(
-        `Unknown account role "${profile.role}". Please contact support.`,
+      // Step 1: Authenticate
+      const { data, error: authError } = await supabase.auth.signInWithPassword(
+        {
+          email,
+          password,
+        },
       );
-      await supabase.auth.signOut();
-    }
 
-    setLoading(false);
+      if (authError) throw authError;
+
+      setStep("fetching_role");
+
+      // Step 2: Get user profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, full_name")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error(
+          "Could not retrieve your account role. Please contact support.",
+        );
+      }
+
+      // Step 3: Log activity
+      try {
+        await logActivity({
+          action: "login",
+          details: `${profile.full_name || email} signed in as ${profile.role}`,
+        });
+      } catch (logErr) {
+        console.warn("[Login] logActivity failed:", logErr?.message);
+      }
+
+      // Step 4: Navigate based on role
+      const role = profile.role?.toLowerCase();
+
+      if (role === "admin") navigate("/admin/dashboard");
+      else if (role === "staff") navigate("/staff/dashboard");
+      else if (role === "applicant") navigate("/applicant/dashboard");
+      else {
+        throw new Error(
+          `Unknown account role "${profile.role}". Please contact support.`,
+        );
+      }
+    } catch (err) {
+      console.error("[Login] Error:", err);
+      setError(err.message || "Login failed. Please try again.");
+      await supabase.auth.signOut();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadingLabel =
@@ -72,7 +78,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* ── Left Panel ── */}
+      {/* Left Panel */}
       <div className="hidden md:flex w-1/2 bg-blue-900 flex-col items-center justify-center p-10 text-white">
         <div className="bg-orange-500 p-4 rounded-full mb-6">
           <svg
@@ -117,7 +123,7 @@ export default function Login() {
         </div>
       </div>
 
-      {/* ── Right Panel ── */}
+      {/* Right Panel */}
       <div className="w-full md:w-1/2 flex items-center justify-center bg-gray-50 p-8">
         <div className="w-full max-w-md">
           {/* Mobile Header */}
@@ -154,15 +160,12 @@ export default function Login() {
               Sign in with your email and password to continue
             </p>
 
-            {/* Error banner */}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg mb-5 text-sm flex items-start gap-2">
                 <span className="flex-shrink-0 mt-0.5">⚠️</span>
                 <span>{error}</span>
               </div>
             )}
-
-            {/* ✅ Blue verification banner completely removed */}
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div>

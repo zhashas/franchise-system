@@ -1,5 +1,5 @@
 // src/pages/applicant/ApplicantDashboard.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import ApplicantLayout from "../../components/ApplicantLayout";
@@ -316,116 +316,196 @@ export default function ApplicantDashboard() {
   const [selectedApt, setSelectedApt] = useState(null);
   const [selectedNotif, setSelectedNotif] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  // ── Fetch all dashboard data ──────────────────────────────────────────
+  const fetchDashboardData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-  const fetchDashboardData = async () => {
     try {
+      // 1. Get the authenticated user first — never skip this step
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) {
+        console.error("[Dashboard] Auth error:", authError.message);
+        navigate("/login");
+        return;
+      }
+
       if (!user) {
         navigate("/login");
         return;
       }
 
-      // Fetch all data in parallel
-      const [
-        { data: prof },
-        { data: apps },
-        { data: apts },
-        { data: notifs },
-        { data: franchiseData },
-      ] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase
-          .from("applications")
-          .select("*")
-          .eq("applicant_id", user.id)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("appointments")
-          .select("*, applications(type)")
-          .eq("applicant_id", user.id)
-          .order("scheduled_date", { ascending: true }),
-        supabase
-          .from("notifications")
-          .select("*")
-          .eq("recipient_id", user.id)
-          .eq("recipient_type", "applicant")
-          .order("created_at", { ascending: false })
-          .limit(5),
-        supabase.from("franchises").select("*").eq("applicant_id", user.id),
-      ]);
+      const uid = user.id;
 
-      setProfile(prof);
-      setApplications(apps || []);
-      setAppointments(apts || []);
-      setRecentNotifs(notifs || []);
-      setFranchises(franchiseData || []);
-    } catch (error) {
-      console.error("Error fetching dashboard data:", error);
+      // 2. Fetch each table individually so one failure doesn't kill the rest.
+      //    profiles MUST use .eq("id", uid).single() — no unfiltered selects.
+      const [profileRes, appsRes, aptsRes, notifsRes, franchisesRes] =
+        await Promise.allSettled([
+          // ✅ Scoped to logged-in user only → avoids 406 from RLS
+          supabase.from("profiles").select("*").eq("id", uid).single(),
+
+          supabase
+            .from("applications")
+            .select("*")
+            .eq("applicant_id", uid)
+            .order("created_at", { ascending: false }),
+
+          supabase
+            .from("appointments")
+            .select("*, applications(type)")
+            .eq("applicant_id", uid)
+            .order("scheduled_date", { ascending: true }),
+
+          supabase
+            .from("notifications")
+            .select("*")
+            .eq("recipient_id", uid)
+            .eq("recipient_type", "applicant")
+            .order("created_at", { ascending: false })
+            .limit(5),
+
+          supabase.from("franchises").select("*").eq("applicant_id", uid),
+        ]);
+
+      // ── Profile ──────────────────────────────────────────────────────
+      if (profileRes.status === "fulfilled") {
+        const { data, error: err } = profileRes.value;
+        if (err) {
+          // 406 means no row found OR RLS blocked it
+          console.warn(
+            "[Dashboard] profiles query error:",
+            err.code,
+            err.message,
+          );
+        } else {
+          setProfile(data);
+        }
+      } else {
+        console.error(
+          "[Dashboard] profiles fetch rejected:",
+          profileRes.reason,
+        );
+      }
+
+      // ── Applications ─────────────────────────────────────────────────
+      if (appsRes.status === "fulfilled") {
+        const { data, error: err } = appsRes.value;
+        if (err) console.warn("[Dashboard] applications error:", err.message);
+        else setApplications(data ?? []);
+      }
+
+      // ── Appointments ─────────────────────────────────────────────────
+      if (aptsRes.status === "fulfilled") {
+        const { data, error: err } = aptsRes.value;
+        if (err) console.warn("[Dashboard] appointments error:", err.message);
+        else setAppointments(data ?? []);
+      }
+
+      // ── Notifications ─────────────────────────────────────────────────
+      if (notifsRes.status === "fulfilled") {
+        const { data, error: err } = notifsRes.value;
+        if (err) console.warn("[Dashboard] notifications error:", err.message);
+        else setRecentNotifs(data ?? []);
+      }
+
+      // ── Franchises ───────────────────────────────────────────────────
+      if (franchisesRes.status === "fulfilled") {
+        const { data, error: err } = franchisesRes.value;
+        if (err) console.warn("[Dashboard] franchises error:", err.message);
+        else setFranchises(data ?? []);
+      }
+    } catch (err) {
+      console.error("[Dashboard] Unexpected error:", err);
+      setError("Something went wrong loading your dashboard. Please refresh.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
 
-  // FIX: Mark a notification as read when the user opens it from the dashboard.
-  //      Also decrements the bell count stored in localStorage so the header
-  //      badge stays in sync without requiring a full page visit to Notifications.
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // ── Mark notification as read + sync bell badge ───────────────────────
   const handleNotifClick = async (n) => {
+    // Open the modal immediately for a snappy UX
     setSelectedNotif(n);
 
-    if (!n.is_read) {
-      // Optimistic local update
+    if (n.is_read) return; // nothing to do
+
+    // Optimistic local update
+    setRecentNotifs((prev) =>
+      prev.map((item) =>
+        item.id === n.id ? { ...item, is_read: true } : item,
+      ),
+    );
+
+    // Persist to Supabase
+    const { error: updateError } = await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", n.id);
+
+    if (updateError) {
+      console.error("[Dashboard] markRead failed:", updateError.message);
+      // Revert optimistic update on error
       setRecentNotifs((prev) =>
         prev.map((item) =>
-          item.id === n.id ? { ...item, is_read: true } : item,
+          item.id === n.id ? { ...item, is_read: false } : item,
         ),
       );
-
-      // Persist to Supabase
-      const { error } = await supabase
-        .from("notifications")
-        .update({ is_read: true })
-        .eq("id", n.id);
-
-      if (error) {
-        console.error("[Dashboard] markRead failed:", error);
-        // Revert optimistic update on error
-        setRecentNotifs((prev) =>
-          prev.map((item) =>
-            item.id === n.id ? { ...item, is_read: false } : item,
-          ),
-        );
-        return;
-      }
-
-      // Sync bell badge: decrement by 1 (capped at 0)
-      const current = parseInt(localStorage.getItem("notif_unread") || "0", 10);
-      const updated = Math.max(0, current - 1);
-      localStorage.setItem("notif_unread", String(updated));
-      window.dispatchEvent(
-        new CustomEvent("notif_unread_update", { detail: updated }),
-      );
+      return;
     }
+
+    // Sync bell badge stored in localStorage
+    const current = parseInt(localStorage.getItem("notif_unread") ?? "0", 10);
+    const updated = Math.max(0, current - 1);
+    localStorage.setItem("notif_unread", String(updated));
+    window.dispatchEvent(
+      new CustomEvent("notif_unread_update", { detail: updated }),
+    );
   };
 
+  // ── Loading state ─────────────────────────────────────────────────────
   if (loading) {
     return (
       <ApplicantLayout>
-        <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center justify-center h-64 gap-3">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500" />
+          <p className="text-sm text-gray-500">Loading your dashboard…</p>
         </div>
       </ApplicantLayout>
     );
   }
 
-  const latestApp = applications[0] || null;
+  // ── Error state ───────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <ApplicantLayout>
+        <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-6">
+          <AlertTriangle size={40} className="text-red-400" />
+          <p className="text-sm text-red-600 font-semibold">{error}</p>
+          <button
+            onClick={fetchDashboardData}
+            className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded-lg text-sm font-bold transition"
+          >
+            Try Again
+          </button>
+        </div>
+      </ApplicantLayout>
+    );
+  }
+
+  // ── Derived values ────────────────────────────────────────────────────
+  const latestApp = applications[0] ?? null;
   const upcomingApt = appointments.find(
     (a) => a.status === "confirmed" && new Date(a.scheduled_date) >= new Date(),
   );
@@ -436,7 +516,7 @@ export default function ApplicantDashboard() {
     (f) =>
       f.status === "active" &&
       new Date(f.expiration_date) <=
-        new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+        new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
   );
 
   const statusColor = (status) => {
@@ -448,11 +528,13 @@ export default function ApplicantDashboard() {
       released: "bg-gray-100 text-gray-700 border-gray-300",
       pending: "bg-yellow-100 text-yellow-700 border-yellow-300",
     };
-    return colors[status] || "bg-gray-100 text-gray-700 border-gray-300";
+    return colors[status] ?? "bg-gray-100 text-gray-700 border-gray-300";
   };
 
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <ApplicantLayout>
+      {/* ── Modals ── */}
       {selectedApt && (
         <AppointmentModal
           apt={selectedApt}
@@ -472,7 +554,7 @@ export default function ApplicantDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                Good day, {profile?.full_name || "Applicant"}! 👋
+                Good day, {profile?.full_name ?? "Applicant"}! 👋
               </h1>
               <p className="text-gray-600 text-sm mt-1">
                 Welcome to your eFranchise Dashboard — manage your applications
@@ -795,11 +877,7 @@ export default function ApplicantDashboard() {
                     <p className="font-bold text-gray-800 text-sm">
                       {new Date(upcomingApt.scheduled_date).toLocaleDateString(
                         "en-PH",
-                        {
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                        },
+                        { month: "long", day: "numeric", year: "numeric" },
                       )}
                     </p>
                     <p className="text-xs text-gray-500">
@@ -807,7 +885,7 @@ export default function ApplicantDashboard() {
                       <span className="capitalize">{upcomingApt.status}</span>
                     </p>
                   </div>
-                  <span className="text-xs text-orange-500 font-semibold group-hover:underline whitespace-nowrap flex items-center gap-1">
+                  <span className="text-xs text-orange-500 font-semibold group-hover:underline whitespace-nowrap">
                     View Details →
                   </span>
                 </div>
@@ -843,9 +921,6 @@ export default function ApplicantDashboard() {
                 {recentNotifs.map((n) => (
                   <div
                     key={n.id}
-                    // FIX: was `onClick={() => setSelectedNotif(n)}`
-                    //      now marks the notification as read in Supabase
-                    //      and syncs the header bell badge.
                     onClick={() => handleNotifClick(n)}
                     className={`cursor-pointer rounded-xl px-3 py-3 border transition hover:scale-[1.01] ${
                       n.is_read
@@ -888,7 +963,7 @@ export default function ApplicantDashboard() {
             </h2>
             <button
               onClick={() => navigate("/applicant/applications")}
-              className="text-xs text-orange-500 hover:underline font-semibold flex items-center gap-1"
+              className="text-xs text-orange-500 hover:underline font-semibold"
             >
               View All →
             </button>
@@ -962,6 +1037,7 @@ export default function ApplicantDashboard() {
                   ))}
                 </tbody>
               </table>
+
               {applications.length > 5 && (
                 <div className="mt-4 text-center">
                   <button

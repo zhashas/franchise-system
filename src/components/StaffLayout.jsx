@@ -1,3 +1,4 @@
+// src/components/StaffLayout.jsx
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -282,6 +283,7 @@ function LogoutModal({ onConfirm, onCancel }) {
     </div>
   );
 }
+
 // ─── Layout ──────────────────────────────────────────────────────────────────
 export default function StaffLayout({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
@@ -348,14 +350,22 @@ export default function StaffLayout({ children }) {
     let channel;
     let cancelled = false;
 
+    // ✅ FIXED: Added recipient_id filter
     const loadUnread = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
+        .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
         .in("recipient_type", ["admin", "staff"])
         .eq("is_read", false)
         .order("created_at", { ascending: false })
         .limit(50);
+
       if (cancelled || error) return;
       const rows = data || [];
       rows.forEach((n) => seenIds.current.add(n.id));
@@ -456,17 +466,24 @@ export default function StaffLayout({ children }) {
     else navigate("/staff/notifications");
   };
 
+  // ✅ FIXED: Added recipient_id filter
   const markAllAsRead = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
     await supabase
       .from("notifications")
       .update({ is_read: true })
+      .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
       .in("recipient_type", ["admin", "staff"])
       .eq("is_read", false);
+
     setBellNotifs([]);
     setUnreadCount(0);
   };
 
-  // ✅ Redirects to landing page "/"
   const handleLogout = async () => {
     await logActivity({ action: "logout", details: "Staff signed out" });
     await supabase.auth.signOut();
