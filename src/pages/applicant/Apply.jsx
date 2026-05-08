@@ -13,15 +13,18 @@ import {
   Upload,
   Camera,
   Home,
-  Shield,
   RefreshCw,
   X,
   ArrowLeft,
-  Plus,
-  Pencil,
-  Trash2,
   GripVertical,
+  ChevronRight,
+  TrendingUp,
+  Clock,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
+
+const cn = (...classes) => classes.filter(Boolean).join(" ");
 
 // ─── VALIDATION HELPERS ───────────────────────────────────────────────────────
 const PH_MOBILE_RE = /^(\+?63|0)9\d{9}$/;
@@ -79,7 +82,6 @@ async function getNextFranchiseSlot() {
       .select("franchise_number")
       .order("franchise_number", { ascending: false })
       .limit(1);
-
     let nextNum = 1;
     if (data && data.length > 0) {
       const raw = data[0].franchise_number || "";
@@ -133,7 +135,6 @@ const MAKES = [
   "SKYGO",
   "RACAL",
 ];
-
 const COLORS = [
   "Red",
   "Blue",
@@ -146,62 +147,410 @@ const COLORS = [
   "Orange",
   "Brown",
 ];
-
 const CIVIL_STATUS = ["Single", "Married", "Widowed", "Separated"];
-
 const CLASSIFICATION = [
   { value: "for_hire", label: "For Hire" },
   { value: "not_for_hire", label: "Not for Hire" },
 ];
 
+// ─── STATUS HELPERS ───────────────────────────────────────────────────────────
+function getStatusSteps(app) {
+  if (!app) return [];
+  const s = app.status;
+  const steps = [
+    {
+      key: "submitted",
+      label: "Submitted",
+      desc: "Application received",
+      icon: "📤",
+      done: true,
+      active: s === "pending",
+    },
+    {
+      key: "under_review",
+      label: "Under Review",
+      desc: "Documents being verified",
+      icon: "🔍",
+      done: [
+        "under_review",
+        "approved",
+        "rejected",
+        "for_release",
+        "released",
+      ].includes(s),
+      active: s === "under_review",
+    },
+    {
+      key: "decision",
+      label:
+        s === "rejected"
+          ? "Rejected"
+          : ["approved", "for_release", "released"].includes(s)
+            ? "Approved"
+            : "Pending Decision",
+      desc:
+        s === "approved"
+          ? "Franchise approved!"
+          : s === "rejected"
+            ? "Application declined"
+            : s === "for_release"
+              ? "Ready for release"
+              : s === "released"
+                ? "Permit released"
+                : "Awaiting decision",
+      icon: ["approved", "for_release", "released"].includes(s)
+        ? "✅"
+        : s === "rejected"
+          ? "❌"
+          : "⏳",
+      done: ["approved", "rejected", "for_release", "released"].includes(s),
+      active: ["approved", "for_release", "released"].includes(s),
+      isRejected: s === "rejected",
+    },
+    {
+      key: "release",
+      label: s === "released" ? "Released" : "For Release",
+      desc: s === "released" ? "Permit claimed" : "Ready to claim",
+      icon: s === "released" ? "✓" : "🏛️",
+      done: s === "released",
+      active: s === "for_release" || s === "released",
+      skip: !["for_release", "released"].includes(s),
+    },
+  ];
+  return steps.filter((step) => !step.skip);
+}
+
+const statusColor = (status) => {
+  const colors = {
+    approved: "bg-green-100 text-green-700 border-green-300",
+    rejected: "bg-red-100 text-red-700 border-red-300",
+    under_review: "bg-blue-100 text-blue-700 border-blue-300",
+    for_release: "bg-purple-100 text-purple-700 border-purple-300",
+    released: "bg-gray-100 text-gray-700 border-gray-300",
+    pending: "bg-yellow-100 text-yellow-700 border-yellow-300",
+  };
+  return colors[status] ?? "bg-gray-100 text-gray-700 border-gray-300";
+};
+
+// ─── STATUS BANNER ────────────────────────────────────────────────────────────
+function StatusBanner({ status, releaseDate }) {
+  if (status === "approved") {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-700 font-medium flex items-start gap-2">
+        <span className="text-lg flex-shrink-0">✅</span>
+        <div>
+          <p className="font-bold mb-1">Congratulations!</p>
+          <p>
+            Your franchise application has been approved. Wait for the "For
+            Release" notification.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-xs text-rose-700 font-medium flex items-start gap-2">
+        <span className="text-lg flex-shrink-0">❌</span>
+        <div>
+          <p className="font-bold mb-1">Application Declined</p>
+          <p>
+            Check your notifications for details. You may contact the office or
+            submit a new application.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "for_release") {
+    return (
+      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-xs text-purple-700 font-medium flex items-start gap-2">
+        <span className="text-lg flex-shrink-0">🏛️</span>
+        <div>
+          <p className="font-bold mb-1">Ready for Release!</p>
+          <p>
+            Visit the Municipal Hall (8AM–5PM, Mon–Fri) to claim your permit.
+            Bring a valid ID.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "released") {
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-700 font-medium flex items-start gap-2">
+        <span className="text-lg flex-shrink-0">✓</span>
+        <div>
+          <p className="font-bold mb-1">Permit Released</p>
+          <p>
+            Released on{" "}
+            {releaseDate
+              ? new Date(releaseDate).toLocaleDateString("en-PH")
+              : "N/A"}
+            . Ensure compliance with regulations.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "under_review") {
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-700 font-medium flex items-start gap-2">
+        <span className="text-lg flex-shrink-0">🔍</span>
+        <div>
+          <p className="font-bold mb-1">Under Review</p>
+          <p>
+            Our team is verifying your documents. You may be contacted for an
+            appointment or additional details.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+// ─── APPLICATION SLOT CARD ────────────────────────────────────────────────────
+function ApplicationSlotCard({ slotNumber, app, defaultExpanded = false }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  // Empty slot
+  if (!app) {
+    return (
+      <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 overflow-hidden">
+        <div className="px-6 py-5 flex items-center gap-4">
+          {/* Slot number badge */}
+          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-sm font-black text-slate-400">
+              {slotNumber}
+            </span>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-slate-400">
+              Application Slot {slotNumber}
+            </p>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Available — no application submitted
+            </p>
+          </div>
+          <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400 border border-slate-200 uppercase tracking-wide">
+            Empty
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const steps = getStatusSteps(app);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Card Header — clickable to expand */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-6 py-5 bg-slate-50 border-b border-slate-200 flex items-center gap-4 hover:bg-slate-100 transition-colors text-left"
+      >
+        {/* Slot number badge */}
+        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+          <span className="text-sm font-black text-white">{slotNumber}</span>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-bold text-slate-800 capitalize">
+              {app.type} Application
+            </h3>
+            <span
+              className={cn(
+                "px-2.5 py-0.5 rounded-full text-[10px] font-bold capitalize border",
+                statusColor(app.status),
+              )}
+            >
+              {app.status.replace(/_/g, " ")}
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1 flex-wrap">
+            <Clock size={10} />
+            Submitted{" "}
+            {new Date(app.created_at).toLocaleDateString("en-PH", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+            {app.details?.control_number && (
+              <> · CN: {app.details.control_number}</>
+            )}
+            {app.details?.franchise_number && (
+              <> · Franchise #: {app.details.franchise_number}</>
+            )}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {expanded ? (
+            <ChevronUp size={18} className="text-slate-400" />
+          ) : (
+            <ChevronDown size={18} className="text-slate-400" />
+          )}
+        </div>
+      </button>
+
+      {/* Expandable Body */}
+      {expanded && (
+        <div className="px-6 py-8 space-y-6">
+          {/* Progress Steps */}
+          <div>
+            <h4 className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-6 flex items-center gap-2">
+              <TrendingUp size={12} />
+              Application Progress
+            </h4>
+            <div className="flex items-start justify-between">
+              {steps.map((step, i) => {
+                const isLast = i === steps.length - 1;
+                const circleCls = !step.done
+                  ? "bg-slate-100 text-slate-400 border-2 border-slate-200"
+                  : step.isRejected
+                    ? "bg-rose-500 text-white shadow-sm"
+                    : "bg-blue-600 text-white shadow-sm";
+                const lineCls =
+                  step.done && !step.isRejected
+                    ? "bg-blue-400"
+                    : "bg-slate-200";
+                const labelCls = !step.done
+                  ? "text-slate-400"
+                  : step.isRejected
+                    ? "text-rose-600"
+                    : "text-slate-800";
+
+                return (
+                  <div
+                    key={step.key}
+                    className="flex-1 flex flex-col items-center relative"
+                  >
+                    {!isLast && (
+                      <div
+                        className={cn(
+                          "absolute top-5 left-1/2 w-full h-1 z-0",
+                          lineCls,
+                        )}
+                      />
+                    )}
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-full flex items-center justify-center z-10 text-base flex-shrink-0 transition font-bold",
+                        circleCls,
+                        step.active ? "ring-4 ring-offset-2 ring-blue-300" : "",
+                      )}
+                    >
+                      {step.done && !step.isRejected ? "✓" : step.icon}
+                    </div>
+                    <p
+                      className={cn(
+                        "text-xs font-bold mt-3 text-center leading-tight",
+                        labelCls,
+                      )}
+                    >
+                      {step.label}
+                    </p>
+                    <p className="text-[10px] text-slate-400 text-center mt-1">
+                      {step.desc}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Status Banner */}
+          <StatusBanner status={app.status} releaseDate={app.release_date} />
+
+          {/* Application Details Grid */}
+          {app.details && (
+            <div>
+              <h4 className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-3">
+                Application Details
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {[
+                  { label: "Owner", value: app.details.franchise_owner },
+                  { label: "Make", value: app.details.make },
+                  { label: "Color", value: app.details.color },
+                  { label: "Plate No.", value: app.details.plate_no },
+                  { label: "Engine No.", value: app.details.motor_no },
+                  { label: "Chassis No.", value: app.details.chassis_no },
+                ]
+                  .filter((d) => d.value)
+                  .map((d) => (
+                    <div
+                      key={d.label}
+                      className="bg-slate-50 rounded-xl p-3 border border-slate-100"
+                    >
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">
+                        {d.label}
+                      </p>
+                      <p className="text-xs font-bold text-slate-700 truncate">
+                        {d.value}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── APPROVED NOTIFICATION CARD ───────────────────────────────────────────────
 function ApprovedNotifCard({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-green-500">
-        <div className="bg-green-50 px-6 py-5 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-            <CheckCircle size={28} className="text-green-600" />
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-emerald-500 animate-in zoom-in-95">
+        <div className="bg-emerald-50 px-6 py-5 flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <CheckCircle size={28} className="text-emerald-600" />
           </div>
-          <div>
-            <h2 className="text-base font-black text-green-800 uppercase tracking-wide">
+          <div className="flex-1">
+            <h2 className="text-base font-black text-emerald-800 uppercase tracking-wide">
               Application Approved!
             </h2>
-            <p className="text-xs text-green-600 mt-0.5">
+            <p className="text-xs text-emerald-600 mt-0.5">
               Your franchise has been approved by the admin.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="ml-auto text-gray-400 hover:text-gray-700 text-xl font-bold"
+            className="text-gray-400 hover:text-gray-700 transition"
           >
-            ×
+            <X size={20} />
           </button>
         </div>
 
         <div className="px-6 py-5 space-y-3">
-          <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
-            <p className="font-black text-gray-700 text-[10px] uppercase tracking-widest mb-2">
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-2">
               Notification Details
             </p>
-            <p className="font-bold text-gray-800 text-sm">{notif.title}</p>
-            <p className="text-gray-600 text-xs leading-relaxed">
+            <p className="font-bold text-slate-800 text-sm">{notif.title}</p>
+            <p className="text-slate-600 text-xs leading-relaxed mt-1">
               {notif.message}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-green-50 rounded-xl p-3 text-center border border-green-200">
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">
+            <div className="bg-emerald-50 rounded-xl p-3 text-center border border-emerald-200">
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">
                 Status
               </p>
-              <span className="text-xs font-black text-green-700 bg-green-100 px-3 py-1 rounded-full uppercase tracking-wide">
+              <span className="text-xs font-black text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-wide">
                 Approved ✓
               </span>
             </div>
             <div className="bg-blue-50 rounded-xl p-3 text-center border border-blue-200">
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">
                 Date
               </p>
               <p className="text-xs font-bold text-blue-700">
@@ -227,13 +576,13 @@ function ApprovedNotifCard({ notif, onClose, onNavigate }) {
         <div className="px-6 pb-5 flex gap-3">
           <button
             onClick={onNavigate}
-            className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition shadow"
+            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition shadow"
           >
             View My Franchises →
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition"
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition"
           >
             Dismiss
           </button>
@@ -248,20 +597,20 @@ function ImagePreviewCard({ file, onClose, onFileChange, fileKey }) {
   const inputRef = useRef();
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-4"
+        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-3">
-          <p className="text-sm font-bold text-gray-700 truncate">
+        <div className="flex justify-between items-center mb-4">
+          <p className="text-sm font-bold text-slate-700 truncate">
             {file.name}
           </p>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl"
+            className="text-slate-400 hover:text-slate-700 transition"
           >
             <X size={20} />
           </button>
@@ -269,18 +618,18 @@ function ImagePreviewCard({ file, onClose, onFileChange, fileKey }) {
         <img
           src={URL.createObjectURL(file)}
           alt="preview"
-          className="w-full max-h-80 object-contain rounded-xl border"
+          className="w-full max-h-80 object-contain rounded-xl border border-slate-200"
         />
         <div className="flex gap-3 mt-4">
           <button
             onClick={onClose}
-            className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition"
+            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest transition shadow"
           >
             ✅ Okay
           </button>
           <button
             onClick={() => inputRef.current?.click()}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition"
+            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest transition shadow"
           >
             🔄 Replace
           </button>
@@ -315,18 +664,19 @@ function FileUploadBox({
   const isImage = file && file.type?.startsWith("image/");
 
   return (
-    <div className="space-y-1.5">
-      <label className="text-sm font-medium text-zinc-600 block">
-        {label} {required && <span className="text-red-500">*</span>}
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-slate-600 block">
+        {label} {required && <span className="text-rose-500">*</span>}
       </label>
       <div
-        className={`flex items-center gap-3 p-3 bg-white border rounded-lg hover:border-blue-400 group transition-all cursor-pointer ${
+        className={cn(
+          "flex items-center gap-3 p-4 bg-white border rounded-xl hover:border-blue-400 group transition-all cursor-pointer shadow-sm",
           file
             ? "border-blue-400 bg-blue-50/30"
             : hasError
-              ? "border-red-400 bg-red-50"
-              : "border-zinc-200"
-        }`}
+              ? "border-rose-400 bg-rose-50"
+              : "border-slate-200",
+        )}
         onClick={
           file && isImage
             ? (e) => {
@@ -336,7 +686,7 @@ function FileUploadBox({
             : undefined
         }
       >
-        <GripVertical size={16} className="text-zinc-300" />
+        <GripVertical size={16} className="text-slate-300" />
         <div className="flex-1 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Upload
@@ -345,11 +695,11 @@ function FileUploadBox({
                 file
                   ? "text-blue-500"
                   : hasError
-                    ? "text-red-400"
-                    : "text-gray-300"
+                    ? "text-rose-400"
+                    : "text-slate-300"
               }
             />
-            <span className="text-sm text-gray-600 truncate max-w-[200px]">
+            <span className="text-sm text-slate-600 truncate max-w-[200px]">
               {file ? file.name : "Click to upload"}
             </span>
           </div>
@@ -393,7 +743,7 @@ function FileUploadBox({
       )}
 
       {hasError && !file && (
-        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+        <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
           <AlertCircle size={11} /> This field is required
         </p>
       )}
@@ -402,15 +752,16 @@ function FileUploadBox({
 }
 
 // ─── SECTION HEADER ───────────────────────────────────────────────────────────
-function SectionHeader({ icon: IconComponent, title }) {
+function SectionHeader({ icon, title }) {
+  const IconComponent = icon;
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div className="flex items-center gap-2">
-        <h3 className="text-xl font-bold text-zinc-800">{title}</h3>
-        <button className="text-zinc-400 hover:text-zinc-600">
-          <Pencil size={16} />
-        </button>
-      </div>
+    <div className="flex items-center gap-3 mb-6">
+      {IconComponent && (
+        <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+          <IconComponent size={20} className="text-slate-600" />
+        </div>
+      )}
+      <h3 className="text-lg font-bold text-slate-800">{title}</h3>
     </div>
   );
 }
@@ -418,22 +769,23 @@ function SectionHeader({ icon: IconComponent, title }) {
 // ─── STEP BAR ─────────────────────────────────────────────────────────────────
 function StepBar({ step, total, labels }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-1 mb-2">
+    <div className="mb-8">
+      <div className="flex items-center gap-1 mb-3">
         {Array.from({ length: total }).map((_, i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
-              i < step ? "bg-black" : "bg-zinc-200"
-            }`}
+            className={cn(
+              "h-1.5 flex-1 rounded-full transition-all duration-300",
+              i < step ? "bg-blue-600" : "bg-slate-200",
+            )}
           />
         ))}
-        <span className="ml-2 text-xs text-zinc-400 whitespace-nowrap font-bold">
+        <span className="ml-2 text-xs text-slate-400 whitespace-nowrap font-bold">
           Step {step}/{total}
         </span>
       </div>
       {labels && (
-        <p className="text-xs font-black text-zinc-500 uppercase tracking-widest text-center">
+        <p className="text-xs font-black text-slate-500 uppercase tracking-widest text-center">
           {labels[step - 1]}
         </p>
       )}
@@ -454,7 +806,7 @@ function FranchisePicker({ franchises, selected, onSelect }) {
 
   if (eligible.length === 0) {
     return (
-      <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-xl p-4 text-sm">
+      <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-xl p-5 text-sm shadow-sm">
         <p className="font-black mb-1 text-xs uppercase tracking-wide">
           ⚠️ No Franchises Eligible for Renewal
         </p>
@@ -466,7 +818,7 @@ function FranchisePicker({ franchises, selected, onSelect }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {eligible.map((f) => {
         const daysLeft = Math.round(
           (new Date(f.expiration_date + "T00:00:00") - today) / 86_400_000,
@@ -476,33 +828,35 @@ function FranchisePicker({ franchises, selected, onSelect }) {
             key={f.id}
             type="button"
             onClick={() => onSelect(f)}
-            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+            className={cn(
+              "w-full text-left p-5 rounded-xl border-2 transition-all shadow-sm hover:shadow-md",
               selected?.id === f.id
-                ? "border-green-500 bg-green-50 ring-2 ring-green-300"
-                : "border-gray-200 hover:border-green-300 bg-white"
-            }`}
+                ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-300"
+                : "border-slate-200 hover:border-emerald-300 bg-white",
+            )}
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-black text-sm text-gray-800 uppercase tracking-wide">
+                <p className="font-black text-sm text-slate-800 uppercase tracking-wide">
                   Franchise # {f.franchise_number || "—"}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   Plate: {f.plate_number || "—"} · Expires: {f.expiration_date}
                 </p>
               </div>
               <span
-                className={`text-xs font-black px-2 py-1 rounded-full uppercase tracking-wide ${
+                className={cn(
+                  "text-xs font-black px-3 py-1 rounded-full uppercase tracking-wide",
                   daysLeft <= 15
-                    ? "bg-red-100 text-red-700"
-                    : "bg-orange-100 text-orange-700"
-                }`}
+                    ? "bg-rose-100 text-rose-700"
+                    : "bg-orange-100 text-orange-700",
+                )}
               >
                 {daysLeft}d left
               </span>
             </div>
             {selected?.id === f.id && (
-              <p className="text-xs text-green-600 font-black mt-1 flex items-center gap-1 uppercase tracking-wide">
+              <p className="text-xs text-emerald-600 font-black mt-2 flex items-center gap-1 uppercase tracking-wide">
                 <CheckCircle size={12} /> Selected
               </p>
             )}
@@ -513,18 +867,18 @@ function FranchisePicker({ franchises, selected, onSelect }) {
   );
 }
 
-// ─── WARNING POPUP (DUPLICATES) ───────────────────────────────────────────────
+// ─── WARNING POPUP ────────────────────────────────────────────────────────────
 function WarningPopup({ messages, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border-t-4 border-red-500">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border-t-4 border-rose-500 animate-in zoom-in-95">
         <div className="flex items-center gap-3 mb-4">
-          <AlertCircle size={28} className="text-red-500" />
+          <AlertCircle size={28} className="text-rose-500" />
           <div>
-            <h2 className="text-base font-black text-gray-900 uppercase tracking-wide">
+            <h2 className="text-base font-black text-slate-900 uppercase tracking-wide">
               Duplicate Records Found
             </h2>
-            <p className="text-xs text-gray-400 uppercase tracking-widest">
+            <p className="text-xs text-slate-400 uppercase tracking-widest">
               Please review the issues below
             </p>
           </div>
@@ -533,7 +887,7 @@ function WarningPopup({ messages, onClose }) {
           {messages.map((m, i) => (
             <div
               key={i}
-              className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs font-medium"
+              className="bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-3 py-2 text-xs font-medium"
             >
               {m}
             </div>
@@ -541,7 +895,7 @@ function WarningPopup({ messages, onClose }) {
         </div>
         <button
           onClick={onClose}
-          className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition"
+          className="w-full bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition shadow"
         >
           Understood — Fix & Resubmit
         </button>
@@ -550,7 +904,7 @@ function WarningPopup({ messages, onClose }) {
   );
 }
 
-// ─── INPUT FIELD COMPONENT ────────────────────────────────────────────────────
+// ─── INPUT FIELD ──────────────────────────────────────────────────────────────
 function InputField({
   label,
   name,
@@ -565,9 +919,9 @@ function InputField({
   ...rest
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-sm font-medium text-zinc-600 block">
-        {label} {required && <span className="text-red-500">*</span>}
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-slate-600 block">
+        {label} {required && <span className="text-rose-500">*</span>}
       </label>
       <input
         type={type}
@@ -576,13 +930,14 @@ function InputField({
         onChange={onChange}
         onBlur={onBlur}
         placeholder={placeholder}
-        className={`w-full border rounded-lg px-4 py-2.5 text-base bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-zinc-300 transition ${
-          hasError ? "border-red-400 bg-red-50" : "border-zinc-200"
-        }`}
+        className={cn(
+          "w-full border rounded-xl px-4 py-3 text-base bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300 transition shadow-sm",
+          hasError ? "border-rose-400 bg-rose-50" : "border-slate-200",
+        )}
         {...rest}
       />
       {errorMsg && (
-        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+        <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
           <AlertCircle size={11} /> {errorMsg}
         </p>
       )}
@@ -590,7 +945,7 @@ function InputField({
   );
 }
 
-// ─── SELECT FIELD COMPONENT ───────────────────────────────────────────────────
+// ─── SELECT FIELD ─────────────────────────────────────────────────────────────
 function SelectField({
   label,
   name,
@@ -601,17 +956,18 @@ function SelectField({
   onChange,
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-sm font-medium text-zinc-600 block">
-        {label} {required && <span className="text-red-500">*</span>}
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-slate-600 block">
+        {label} {required && <span className="text-rose-500">*</span>}
       </label>
       <select
         name={name}
         value={value}
         onChange={onChange}
-        className={`w-full border rounded-lg px-4 py-2.5 text-base bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
-          hasError ? "border-red-400 bg-red-50" : "border-zinc-200"
-        }`}
+        className={cn(
+          "w-full border rounded-xl px-4 py-3 text-base bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 transition shadow-sm",
+          hasError ? "border-rose-400 bg-rose-50" : "border-slate-200",
+        )}
       >
         <option value="">-- Select --</option>
         {options.map((opt) =>
@@ -627,7 +983,7 @@ function SelectField({
         )}
       </select>
       {hasError && !value && (
-        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+        <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
           <AlertCircle size={11} /> This field is required
         </p>
       )}
@@ -639,7 +995,6 @@ function SelectField({
 export default function Apply() {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState("new");
   const [appType, setAppType] = useState("");
   const [step, setStep] = useState(1);
   const TOTAL_STEPS = 3;
@@ -652,6 +1007,8 @@ export default function Apply() {
   const [myFranchises, setMyFranchises] = useState([]);
   const [selectedFranchise, setSelectedFranchise] = useState(null);
   const [approvedNotif, setApprovedNotif] = useState(null);
+  const [myApplications, setMyApplications] = useState([]);
+  const [loadingApps, setLoadingApps] = useState(true);
 
   const emptyForm = useMemo(
     () => ({
@@ -718,7 +1075,31 @@ export default function Apply() {
   const topRef = useRef(null);
   const errorRef = useRef(null);
 
-  // ── Check for unread approved notifications on mount ─────────────────────
+  // ── Fetch user's applications ─────────────────────────────────────────────
+  const fetchMyApplications = async () => {
+    setLoadingApps(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("applications")
+        .select("*")
+        .eq("applicant_id", user.id)
+        .order("created_at", { ascending: true });
+      setMyApplications(data ?? []);
+    } catch (err) {
+      console.error("[Apply] fetchMyApplications:", err);
+    }
+    setLoadingApps(false);
+  };
+
+  useEffect(() => {
+    fetchMyApplications();
+  }, []);
+
+  // ── Check approved notif on mount ─────────────────────────────────────────
   useEffect(() => {
     const checkApprovedNotif = async () => {
       const {
@@ -821,11 +1202,9 @@ export default function Apply() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     let sanitized = value;
-
     if (name === "motor_no" || name === "chassis_no") {
       sanitized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
     }
-
     setFormData((prev) => ({ ...prev, [name]: sanitized }));
     setFieldErrors((prev) => ({ ...prev, [name]: false }));
     setInlineErrors((prev) => ({ ...prev, [name]: null }));
@@ -870,42 +1249,34 @@ export default function Apply() {
   const validateStep1 = () => {
     const errs = {};
     const inline = {};
-
     if (!formData.franchise_owner.trim()) errs.franchise_owner = true;
     if (!formData.address.trim()) errs.address = true;
     if (!formData.date_of_birth) errs.date_of_birth = true;
     if (!formData.civil_status) errs.civil_status = true;
-
     const contactErr = validateContactNumber(formData.contact_number);
     if (contactErr) {
       errs.contact_number = true;
       inline.contact_number = contactErr;
     }
-
     if (!formData.make) errs.make = true;
     if (!formData.color) errs.color = true;
-
     const engineErr = validateEngineNumber(formData.motor_no);
     if (engineErr) {
       errs.motor_no = true;
       inline.motor_no = engineErr;
     }
-
     const chassisErr = validateChassisNumber(formData.chassis_no);
     if (chassisErr) {
       errs.chassis_no = true;
       inline.chassis_no = chassisErr;
     }
-
     if (!formData.plate_no.trim()) errs.plate_no = true;
     if (appType === "renewal" && !selectedFranchise)
       errs.selectedFranchise = true;
-
     setFieldErrors(errs);
     setInlineErrors(inline);
-
     if (Object.keys(errs).length > 0) {
-      setError("⚠️ Please fix all errors before continuing.");
+      setError("⚠️ Please fix all necessary requirements.");
       errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return false;
     }
@@ -966,7 +1337,6 @@ export default function Apply() {
     const motorNorm = formData.motor_no.trim().toUpperCase();
     const chassisNorm = formData.chassis_no.trim().toUpperCase();
     const plateNorm = formData.plate_no.trim().toUpperCase();
-
     for (const check of [
       { jsonKey: "motor_no", value: motorNorm, label: "Engine/Motor Number" },
       { jsonKey: "chassis_no", value: chassisNorm, label: "Chassis Number" },
@@ -1023,15 +1393,13 @@ export default function Apply() {
       errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-
     if (blockReason) return;
-    setLoading(true);
 
+    setLoading(true);
     try {
       const engineErr = validateEngineNumber(formData.motor_no);
       const chassisErr = validateChassisNumber(formData.chassis_no);
       const contactErr = validateContactNumber(formData.contact_number);
-
       if (engineErr || chassisErr || contactErr) {
         setInlineErrors({
           motor_no: engineErr,
@@ -1133,6 +1501,8 @@ export default function Apply() {
       setSubmittedControlNumber(controlNumber);
       setSubmittedFranchiseNumber(franchiseSlot);
       setSuccess(true);
+      // Refresh applications list after successful submit
+      await fetchMyApplications();
     } catch (err) {
       setError("❌ " + err.message);
     }
@@ -1142,12 +1512,18 @@ export default function Apply() {
   const isRenewal = appType === "renewal";
   const isRegistration = appType === "registration";
 
+  // ── Build 3 fixed slots ───────────────────────────────────────────────────
+  const MAX_SLOTS = 3;
+  const slots = Array.from(
+    { length: MAX_SLOTS },
+    (_, i) => myApplications[i] ?? null,
+  );
+  const usedSlots = myApplications.length;
+  const canApply = usedSlots < MAX_SLOTS;
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <ApplicantLayout
-      backLabel="Back to Dashboard"
-      backPath="/applicant/dashboard"
-    >
+    <ApplicantLayout>
       {approvedNotif && (
         <ApprovedNotifCard
           notif={approvedNotif}
@@ -1165,573 +1541,760 @@ export default function Apply() {
         />
       )}
 
-      <div className="min-h-screen bg-[#F9FAFB] pb-24">
-        <div className="max-w-4xl mx-auto px-4 py-6" ref={topRef}>
-          <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
-            {/* ── Header ── */}
-            <div className="bg-zinc-50 px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {appType && (
-                  <button
-                    onClick={() => {
-                      if (step > 1) {
-                        goBack();
-                      } else {
-                        setAppType("");
-                        setStep(1);
-                      }
-                    }}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-100 rounded-md transition-colors text-zinc-600 font-medium"
-                  >
-                    <ArrowLeft size={18} />
-                    <span className="text-sm">Back</span>
-                  </button>
-                )}
-                <div className="h-4 w-[1px] bg-zinc-200" />
-                <span className="text-xs text-zinc-400 font-medium tracking-wide">
-                  SAN JOSE /{" "}
-                  <span className="text-zinc-900 font-bold uppercase">
-                    {appType || "Franchise Portal"}
-                  </span>
-                </span>
-              </div>
+      <div className="space-y-8 animate-in">
+        <div className="max-w-8xl mx-auto" ref={topRef}>
+          {/* ── PAGE HEADER ── */}
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
+            <div>
+              <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight">
+                {appType
+                  ? appType === "registration"
+                    ? "New Registration"
+                    : "Renewal Application"
+                  : "Application Portal"}
+              </h1>
+              <p className="text-slate-500 text-sm font-medium mt-1">
+                {appType
+                  ? "Complete all required information to submit your application."
+                  : "Manage and track all your franchise applications below."}
+              </p>
             </div>
+            {appType && (
+              <button
+                onClick={() => {
+                  if (step > 1) {
+                    goBack();
+                  } else {
+                    setAppType("");
+                    setStep(1);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm transition-all"
+              >
+                <ArrowLeft size={16} />
+                {step > 1 ? "Previous Step" : "Back to Applications"}
+              </button>
+            )}
+          </div>
 
-            {/* ── Body ── */}
-            <div className="p-6 md:p-8">
-              {checkingStatus && (
-                <div className="bg-blue-50 border border-blue-300 text-blue-700 p-4 rounded-xl mb-4 text-xs font-bold flex items-center gap-2 uppercase tracking-wide">
-                  <RefreshCw size={14} className="animate-spin" /> Checking
-                  status…
-                </div>
-              )}
-              {blockReason && !checkingStatus && (
-                <div className="bg-yellow-50 border-2 border-yellow-400 text-yellow-800 p-5 rounded-xl mb-4 text-sm flex items-start gap-3">
-                  <AlertCircle size={24} className="flex-shrink-0" />
-                  <div>
-                    <p className="font-black mb-1 uppercase tracking-wide text-xs">
-                      Application Blocked
-                    </p>
-                    <p className="text-xs">{blockReason}</p>
-                  </div>
-                </div>
-              )}
-              {error && (
-                <div
-                  ref={errorRef}
-                  className="bg-red-50 border border-red-400 text-red-600 p-4 rounded-xl mb-4 text-sm flex items-start gap-2"
-                >
-                  <AlertCircle size={16} className="flex-shrink-0" />
-                  <span className="font-bold text-xs">{error}</span>
-                </div>
-              )}
-              {showDupPopup && duplicateAlerts.length > 0 && (
-                <WarningPopup
-                  messages={duplicateAlerts}
-                  onClose={() => setShowDupPopup(false)}
-                />
-              )}
-
-              {/* ── Two-page tab navigation ── */}
-              {!appType && (
-                <div className="space-y-6">
-                  <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold text-black tracking-tight mb-2">
-                      Select Application Type
-                    </h1>
-                    <p className="text-zinc-500 font-medium">
-                      Please choose which process you'd like to begin.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-6 max-w-2xl mx-auto">
-                    <button
-                      onClick={() => setAppType("registration")}
-                      className="p-8 text-left border border-zinc-200 rounded-xl hover:border-black hover:ring-1 hover:ring-black transition-all group"
-                    >
-                      <div className="flex items-center gap-6">
-                        <div className="w-16 h-16 bg-zinc-100 rounded-xl flex items-center justify-center text-zinc-900">
-                          <FileText size={32} />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-black">
-                            New Registration
-                          </h3>
-                          <p className="text-sm text-zinc-500 mt-1">
-                            Register a new tricycle franchise.
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => setAppType("renewal")}
-                      className="p-8 text-left border border-zinc-200 rounded-xl hover:border-black hover:ring-1 hover:ring-black transition-all group"
-                    >
-                      <div className="flex items-center gap-6">
-                        <div className="w-16 h-16 bg-zinc-100 rounded-xl flex items-center justify-center text-zinc-900">
-                          <RefreshCw size={32} />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-black">
-                            Renewal Permit
-                          </h3>
-                          <p className="text-sm text-zinc-500 mt-1">
-                            Renew an existing franchise permit.
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {appType && !blockReason && !checkingStatus && (
-                <form onSubmit={handleSubmit}>
-                  <StepBar
-                    step={step}
-                    total={TOTAL_STEPS}
-                    labels={STEP_LABELS}
-                  />
-
-                  {/* ── Form Block ── */}
-                  <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden mb-6">
-                    <div className="p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
-                        Section {step}:{" "}
-                        {step === 1
-                          ? "Personal & Vehicle Info"
-                          : step === 2
-                            ? "Required Documents"
-                            : "Vehicle & Garage Photos"}
-                      </h3>
-                      <div className="flex gap-1">
-                        {[1, 2, 3].map((i) => (
-                          <div
-                            key={i}
-                            className={`h-1.5 w-8 rounded-full ${i === step ? "bg-black" : "bg-zinc-200"}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="p-8 md:p-12 space-y-8">
-                      {/* ── STEP 1 ── */}
-                      {step === 1 && (
-                        <div className="space-y-8">
-                          {isRenewal && (
-                            <div>
-                              <SectionHeader
-                                icon={RefreshCw}
-                                title="Select Franchise to Renew"
-                              />
-                              <FranchisePicker
-                                franchises={myFranchises}
-                                selected={selectedFranchise}
-                                onSelect={setSelectedFranchise}
-                              />
-                              {fieldErrors.selectedFranchise && (
-                                <p className="text-xs text-red-500 mt-2 flex items-center gap-1">
-                                  <AlertCircle size={11} /> Please select a
-                                  franchise to renew.
-                                </p>
-                              )}
-                            </div>
+          {/* ── APPLICATION SLOTS TRACKER (shown when not filling form) ── */}
+          {!appType && (
+            <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">
+              {/* ── LEFT COLUMN: Application Status Tracker ── */}
+              <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
+                    <TrendingUp size={14} />
+                    Application Status Tracker
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {usedSlots}/{MAX_SLOTS} slots used
+                    </span>
+                    <div className="flex gap-1">
+                      {slots.map((s, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "w-6 h-2 rounded-full transition-all",
+                            s ? "bg-blue-500" : "bg-slate-200",
                           )}
-
-                          <div>
-                            <SectionHeader
-                              icon={User}
-                              title="Personal Information"
-                            />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="md:col-span-2">
-                                <InputField
-                                  label="Full Name"
-                                  name="franchise_owner"
-                                  value={formData.franchise_owner}
-                                  placeholder="Owner's Full Name"
-                                  required
-                                  hasError={!!fieldErrors.franchise_owner}
-                                  onChange={handleChange}
-                                  onBlur={handleBlur}
-                                />
-                              </div>
-
-                              <div className="md:col-span-2">
-                                <InputField
-                                  label="Home Address"
-                                  name="address"
-                                  value={formData.address}
-                                  placeholder="Barangay, San Jose, Occ. Mindoro"
-                                  required
-                                  hasError={!!fieldErrors.address}
-                                  onChange={handleChange}
-                                  onBlur={handleBlur}
-                                />
-                              </div>
-
-                              <InputField
-                                label="Date of Birth"
-                                name="date_of_birth"
-                                type="date"
-                                value={formData.date_of_birth}
-                                required
-                                hasError={!!fieldErrors.date_of_birth}
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-
-                              <SelectField
-                                label="Civil Status"
-                                name="civil_status"
-                                value={formData.civil_status}
-                                options={CIVIL_STATUS}
-                                required
-                                hasError={!!fieldErrors.civil_status}
-                                onChange={handleChange}
-                              />
-
-                              <InputField
-                                label="Contact Number"
-                                name="contact_number"
-                                type="tel"
-                                value={formData.contact_number}
-                                placeholder="09XXXXXXXXX"
-                                required
-                                hasError={!!fieldErrors.contact_number}
-                                errorMsg={inlineErrors.contact_number}
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-
-                              <InputField
-                                label="Email Address"
-                                name="email"
-                                type="email"
-                                value={formData.email}
-                                placeholder="email@example.com"
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <SectionHeader
-                              icon={Car}
-                              title="Vehicle Information"
-                            />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <SelectField
-                                label="Motorcycle Make"
-                                name="make"
-                                value={formData.make}
-                                options={MAKES}
-                                required
-                                hasError={!!fieldErrors.make}
-                                onChange={handleChange}
-                              />
-
-                              <SelectField
-                                label="Color"
-                                name="color"
-                                value={formData.color}
-                                options={COLORS}
-                                required
-                                hasError={!!fieldErrors.color}
-                                onChange={handleChange}
-                              />
-
-                              <InputField
-                                label="Engine Number"
-                                name="motor_no"
-                                value={formData.motor_no}
-                                placeholder="EN12345678"
-                                maxLength={20}
-                                required
-                                hasError={!!fieldErrors.motor_no}
-                                errorMsg={inlineErrors.motor_no}
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-
-                              <InputField
-                                label="Chassis Number"
-                                name="chassis_no"
-                                value={formData.chassis_no}
-                                placeholder="CHS2024ABC998877"
-                                maxLength={25}
-                                required
-                                hasError={!!fieldErrors.chassis_no}
-                                errorMsg={inlineErrors.chassis_no}
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-
-                              <InputField
-                                label="Plate Number"
-                                name="plate_no"
-                                value={formData.plate_no}
-                                placeholder="ABC 1234"
-                                required
-                                hasError={!!fieldErrors.plate_no}
-                                onChange={handleChange}
-                                onBlur={handleBlur}
-                              />
-
-                              <SelectField
-                                label="Classification"
-                                name="classification"
-                                value={formData.classification}
-                                options={CLASSIFICATION}
-                                onChange={handleChange}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="pt-8 flex justify-end gap-3">
-                            <button
-                              type="button"
-                              onClick={goNext}
-                              className="px-6 py-2.5 bg-black text-white rounded-lg font-bold text-sm hover:bg-zinc-800"
-                            >
-                              Continue
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── STEP 2 ── */}
-                      {step === 2 && (
-                        <div className="space-y-8">
-                          <div>
-                            <SectionHeader
-                              icon={FileText}
-                              title="Required Documents"
-                            />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {isRegistration && (
-                                <div className="md:col-span-2">
-                                  <FileUploadBox
-                                    label="Stencil Motor (Engine/Chassis)"
-                                    fileKey="stencil_motor"
-                                    files={files}
-                                    onFileChange={handleFileChange}
-                                    hasError={!!fieldErrors.stencil_motor}
-                                    accept="image/*"
-                                  />
-                                </div>
-                              )}
-                              <FileUploadBox
-                                label="Official Receipt (LTO)"
-                                fileKey="or_latest"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.or_latest}
-                              />
-                              <FileUploadBox
-                                label="Certificate of Registration"
-                                fileKey="cr"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.cr}
-                              />
-                              <FileUploadBox
-                                label="Cedula"
-                                fileKey="cedula"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.cedula}
-                              />
-                              <FileUploadBox
-                                label="Police Clearance"
-                                fileKey="police_clearance"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.police_clearance}
-                              />
-                              <FileUploadBox
-                                label="Barangay Residency"
-                                fileKey="barangay_residency"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.barangay_residency}
-                              />
-                              <FileUploadBox
-                                label="Voter's Certification"
-                                fileKey="voters_cert"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.voters_cert}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="pt-8 flex justify-end gap-3">
-                            <button
-                              type="button"
-                              onClick={goBack}
-                              className="px-6 py-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-600 font-bold text-sm hover:bg-zinc-50"
-                            >
-                              Previous
-                            </button>
-                            <button
-                              type="button"
-                              onClick={goNext}
-                              className="px-6 py-2.5 bg-black text-white rounded-lg font-bold text-sm hover:bg-zinc-800"
-                            >
-                              Continue
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── STEP 3 ── */}
-                      {step === 3 && (
-                        <div className="space-y-8">
-                          <div>
-                            <SectionHeader
-                              icon={Camera}
-                              title="Vehicle Photos"
-                            />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="md:col-span-2">
-                                <FileUploadBox
-                                  label="Tricycle Condition (Overall)"
-                                  fileKey="tricycle_condition"
-                                  files={files}
-                                  onFileChange={handleFileChange}
-                                  hasError={!!fieldErrors.tricycle_condition}
-                                  accept="image/*"
-                                />
-                              </div>
-                              <FileUploadBox
-                                label="Left Signal Light"
-                                fileKey="left_signal"
-                                required={false}
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={false}
-                                accept="image/*"
-                              />
-                              <FileUploadBox
-                                label="Right Signal Light"
-                                fileKey="right_signal"
-                                required={false}
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={false}
-                                accept="image/*"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <SectionHeader icon={Home} title="Garage Photos" />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <FileUploadBox
-                                label="Garage Condition"
-                                fileKey="garage_condition"
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={!!fieldErrors.garage_condition}
-                                accept="image/*"
-                              />
-                              <FileUploadBox
-                                label="Garage with Tricycle"
-                                fileKey="garage_photo"
-                                required={false}
-                                files={files}
-                                onFileChange={handleFileChange}
-                                hasError={false}
-                                accept="image/*"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="pt-8 flex justify-end gap-3">
-                            <button
-                              type="button"
-                              onClick={goBack}
-                              className="px-6 py-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-600 font-bold text-sm hover:bg-zinc-50"
-                            >
-                              Previous
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={loading}
-                              className="px-6 py-2.5 bg-black text-white rounded-lg font-bold text-sm hover:bg-zinc-800 disabled:opacity-50"
-                            >
-                              {loading ? "Sending..." : "Submit Application"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        />
+                      ))}
                     </div>
                   </div>
+                </div>
 
-                  {/* ── Help Box ── */}
-                  <div className="bg-zinc-900 p-8 rounded-2xl flex items-center justify-between">
-                    <div>
-                      <h4 className="text-white font-bold text-lg">
-                        Need help with your application?
-                      </h4>
-                      <p className="text-zinc-400 text-sm mt-1">
-                        Call the support line at (+63) 123-4567
+                {/* Slot capacity info */}
+                <div className="px-6 py-4 flex items-center gap-4 border-b border-slate-100 bg-white">
+                  <div className="flex gap-3 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                        Active
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                        Available
+                      </span>
+                    </div>
+                  </div>
+                  <div className="ml-auto">
+                    {canApply ? (
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg uppercase tracking-wide">
+                        {MAX_SLOTS - usedSlots} slot
+                        {MAX_SLOTS - usedSlots !== 1 ? "s" : ""} available
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg uppercase tracking-wide">
+                        Max slots reached
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* The 3 slot cards */}
+                <div className="p-6 space-y-4">
+                  {loadingApps ? (
+                    <div className="flex items-center justify-center py-8 gap-3">
+                      <div className="w-6 h-6 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+                      <p className="text-xs text-slate-400 font-medium">
+                        Loading applications…
                       </p>
                     </div>
-                    <button className="bg-white text-zinc-900 px-4 py-2 rounded-lg font-black text-xs uppercase tracking-widest">
-                      Contact
-                    </button>
+                  ) : (
+                    slots.map((app, i) => (
+                      <ApplicationSlotCard
+                        key={i}
+                        slotNumber={i + 1}
+                        app={app}
+                        defaultExpanded={false}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* ── RIGHT COLUMN: Start New Application + Requirements ── */}
+              <div className="space-y-4">
+                {/* Application Type Selection */}
+                {canApply && !blockReason && !checkingStatus && (
+                  <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                      <h2 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
+                        <FileText size={14} />
+                        Start New Application — Slot {usedSlots + 1}
+                      </h2>
+                    </div>
+                    <div className="p-4 grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setAppType("registration")}
+                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-blue-500 hover:shadow-lg transition-all group bg-white"
+                      >
+                        <div className="flex flex-col items-start gap-3">
+                          <div className="w-11 h-11 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                            <FileText size={22} />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-sm font-bold text-slate-900 mb-0.5 leading-tight">
+                              New Registration
+                            </h3>
+                            <p className="text-xs text-slate-500 leading-snug">
+                              Register a brand new tricycle franchise.
+                            </p>
+                          </div>
+                          <ChevronRight
+                            size={16}
+                            className="text-slate-300 group-hover:text-blue-500 transition-colors self-end"
+                          />
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => setAppType("renewal")}
+                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-emerald-500 hover:shadow-lg transition-all group bg-white"
+                      >
+                        <div className="flex flex-col items-start gap-3">
+                          <div className="w-11 h-11 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                            <RefreshCw size={22} />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-sm font-bold text-slate-900 mb-0.5 leading-tight">
+                              Renewal Application
+                            </h3>
+                            <p className="text-xs text-slate-500 leading-snug">
+                              Renew an existing franchise permit.
+                            </p>
+                          </div>
+                          <ChevronRight
+                            size={16}
+                            className="text-slate-300 group-hover:text-emerald-500 transition-colors self-end"
+                          />
+                        </div>
+                      </button>
+                    </div>
                   </div>
-                </form>
-              )}
+                )}
+
+                {/* Max slots reached message */}
+                {!canApply && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex items-start gap-3">
+                    <AlertCircle
+                      size={20}
+                      className="text-amber-500 flex-shrink-0 mt-0.5"
+                    />
+                    <div>
+                      <p className="font-bold text-amber-800 text-sm mb-1">
+                        Maximum Applications Reached
+                      </p>
+                      <p className="text-xs text-amber-700">
+                        You have used all 3 application slots. You cannot submit
+                        a new application unless one of your existing
+                        applications is resolved or released.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── What to Prepare Card ── */}
+                <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 bg-slate-50 border-b border-slate-200">
+                    <h2 className="text-xs font-bold uppercase tracking-widest text-blue-500 flex items-center gap-2">
+                      <CheckCircle size={13} className="text-slate-400" />
+                      What to Prepare
+                    </h2>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    {/* Documents */}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                        <FileText size={10} /> Required Documents
+                      </p>
+                      <ul className="space-y-1.5">
+                        {[
+                          "Latest OR / CR",
+                          "Cedula",
+                          "Police Clearance",
+                          "Barangay Residency",
+                          "Voter's Certification",
+                        ].map((doc) => (
+                          <li
+                            key={doc}
+                            className="flex items-center gap-2 text-xs text-slate-600"
+                          >
+                            <span className="w-4 h-4 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 block" />
+                            </span>
+                            {doc}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="border-t border-slate-100" />
+
+                    {/* Photos */}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                        <Camera size={10} /> Required Photos
+                      </p>
+                      <ul className="space-y-1.5">
+                        {[
+                          "Tricycle overall condition",
+                          "Left & right signal lights",
+                          "Garage condition",
+                        ].map((photo) => (
+                          <li
+                            key={photo}
+                            className="flex items-center gap-2 text-xs text-slate-600"
+                          >
+                            <span className="w-4 h-4 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 block" />
+                            </span>
+                            {photo}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="border-t border-slate-100" />
+
+                    {/* Office hours */}
+                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1.5">
+                        <Clock size={10} /> Office Hours
+                      </p>
+                      <p className="text-xs font-bold text-slate-700">
+                        Mon – Fri &nbsp;·&nbsp; 8:00 AM – 5:00 PM
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Municipal Hall, Business Permits Office
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* ── ALERTS ── */}
+          {appType && checkingStatus && (
+            <div className="bg-blue-50 border border-blue-300 text-blue-700 p-4 rounded-xl mb-6 text-xs font-bold flex items-center gap-2 uppercase tracking-wide shadow-sm">
+              <RefreshCw size={14} className="animate-spin" /> Checking
+              eligibility…
+            </div>
+          )}
+
+          {appType && blockReason && !checkingStatus && (
+            <div className="bg-yellow-50 border-2 border-yellow-400 text-yellow-800 p-5 rounded-xl mb-6 text-sm flex items-start gap-3 shadow-sm">
+              <AlertCircle size={24} className="flex-shrink-0" />
+              <div>
+                <p className="font-black mb-1 uppercase tracking-wide text-xs">
+                  Application Currently in Progress
+                </p>
+                <p className="text-xs">{blockReason}</p>
+              </div>
+            </div>
+          )}
+
+          {appType && error && (
+            <div
+              ref={errorRef}
+              className="bg-rose-50 border border-rose-400 text-rose-600 p-4 rounded-xl mb-6 text-sm flex items-start gap-2 shadow-sm"
+            >
+              <AlertCircle size={16} className="flex-shrink-0" />
+              <span className="font-bold text-xs">{error}</span>
+            </div>
+          )}
+
+          {showDupPopup && duplicateAlerts.length > 0 && (
+            <WarningPopup
+              messages={duplicateAlerts}
+              onClose={() => setShowDupPopup(false)}
+            />
+          )}
+
+          {/* ── FORM ── */}
+          {appType && !blockReason && !checkingStatus && (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <StepBar step={step} total={TOTAL_STEPS} labels={STEP_LABELS} />
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Section Header */}
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Section {step}:{" "}
+                    {step === 1
+                      ? "Personal & Vehicle Info"
+                      : step === 2
+                        ? "Required Documents"
+                        : "Vehicle & Garage Photos"}
+                  </h3>
+                  <div className="flex gap-1">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "h-1.5 w-8 rounded-full transition-all",
+                          i === step ? "bg-blue-600" : "bg-slate-200",
+                        )}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section Content */}
+                <div className="p-8 md:p-12 space-y-8">
+                  {/* ── STEP 1 ── */}
+                  {step === 1 && (
+                    <div className="space-y-8">
+                      {isRenewal && (
+                        <div>
+                          <SectionHeader
+                            icon={RefreshCw}
+                            title="Select Franchise to Renew"
+                          />
+                          <FranchisePicker
+                            franchises={myFranchises}
+                            selected={selectedFranchise}
+                            onSelect={setSelectedFranchise}
+                          />
+                          {fieldErrors.selectedFranchise && (
+                            <p className="text-xs text-rose-500 mt-2 flex items-center gap-1">
+                              <AlertCircle size={11} /> Please select a
+                              franchise to renew.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <SectionHeader
+                          icon={User}
+                          title="Personal Information"
+                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="md:col-span-2">
+                            <InputField
+                              label="Full Name"
+                              name="franchise_owner"
+                              value={formData.franchise_owner}
+                              placeholder="Owner's Full Name"
+                              required
+                              hasError={!!fieldErrors.franchise_owner}
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <InputField
+                              label="Home Address"
+                              name="address"
+                              value={formData.address}
+                              placeholder="Barangay, San Jose, Occ. Mindoro"
+                              required
+                              hasError={!!fieldErrors.address}
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                            />
+                          </div>
+                          <InputField
+                            label="Date of Birth"
+                            name="date_of_birth"
+                            type="date"
+                            value={formData.date_of_birth}
+                            required
+                            hasError={!!fieldErrors.date_of_birth}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                          <SelectField
+                            label="Civil Status"
+                            name="civil_status"
+                            value={formData.civil_status}
+                            options={CIVIL_STATUS}
+                            required
+                            hasError={!!fieldErrors.civil_status}
+                            onChange={handleChange}
+                          />
+                          <InputField
+                            label="Contact Number"
+                            name="contact_number"
+                            type="tel"
+                            value={formData.contact_number}
+                            placeholder="09XXXXXXXXX"
+                            required
+                            hasError={!!fieldErrors.contact_number}
+                            errorMsg={inlineErrors.contact_number}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                          <InputField
+                            label="Email Address"
+                            name="email"
+                            type="email"
+                            value={formData.email}
+                            placeholder="email@example.com"
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <SectionHeader icon={Car} title="Vehicle Information" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <SelectField
+                            label="Motorcycle Make"
+                            name="make"
+                            value={formData.make}
+                            options={MAKES}
+                            required
+                            hasError={!!fieldErrors.make}
+                            onChange={handleChange}
+                          />
+                          <SelectField
+                            label="Color"
+                            name="color"
+                            value={formData.color}
+                            options={COLORS}
+                            required
+                            hasError={!!fieldErrors.color}
+                            onChange={handleChange}
+                          />
+                          <InputField
+                            label="Engine Number"
+                            name="motor_no"
+                            value={formData.motor_no}
+                            placeholder="EN12345678"
+                            maxLength={20}
+                            required
+                            hasError={!!fieldErrors.motor_no}
+                            errorMsg={inlineErrors.motor_no}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                          <InputField
+                            label="Chassis Number"
+                            name="chassis_no"
+                            value={formData.chassis_no}
+                            placeholder="CHS2024ABC998877"
+                            maxLength={25}
+                            required
+                            hasError={!!fieldErrors.chassis_no}
+                            errorMsg={inlineErrors.chassis_no}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                          <InputField
+                            label="Plate Number"
+                            name="plate_no"
+                            value={formData.plate_no}
+                            placeholder="ABC 1234"
+                            required
+                            hasError={!!fieldErrors.plate_no}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                          />
+                          <SelectField
+                            label="Classification"
+                            name="classification"
+                            value={formData.classification}
+                            options={CLASSIFICATION}
+                            onChange={handleChange}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-6 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={goNext}
+                          className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-sm hover:shadow-md"
+                        >
+                          Continue →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── STEP 2 ── */}
+                  {step === 2 && (
+                    <div className="space-y-8">
+                      <div>
+                        <SectionHeader
+                          icon={FileText}
+                          title="Required Documents"
+                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {isRegistration && (
+                            <div className="md:col-span-2">
+                              <FileUploadBox
+                                label="Stencil Motor (Engine/Chassis)"
+                                fileKey="stencil_motor"
+                                files={files}
+                                onFileChange={handleFileChange}
+                                hasError={!!fieldErrors.stencil_motor}
+                                accept="image/*"
+                              />
+                            </div>
+                          )}
+                          <FileUploadBox
+                            label="Official Receipt (LTO)"
+                            fileKey="or_latest"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.or_latest}
+                          />
+                          <FileUploadBox
+                            label="Certificate of Registration"
+                            fileKey="cr"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.cr}
+                          />
+                          <FileUploadBox
+                            label="Cedula"
+                            fileKey="cedula"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.cedula}
+                          />
+                          <FileUploadBox
+                            label="Police Clearance"
+                            fileKey="police_clearance"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.police_clearance}
+                          />
+                          <FileUploadBox
+                            label="Barangay Residency"
+                            fileKey="barangay_residency"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.barangay_residency}
+                          />
+                          <FileUploadBox
+                            label="Voter's Certification"
+                            fileKey="voters_cert"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.voters_cert}
+                          />
+                        </div>
+                      </div>
+                      <div className="pt-6 flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={goBack}
+                          className="px-8 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition-all"
+                        >
+                          ← Previous
+                        </button>
+                        <button
+                          type="button"
+                          onClick={goNext}
+                          className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-sm hover:shadow-md"
+                        >
+                          Continue →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── STEP 3 ── */}
+                  {step === 3 && (
+                    <div className="space-y-8">
+                      <div>
+                        <SectionHeader icon={Camera} title="Vehicle Photos" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="md:col-span-2">
+                            <FileUploadBox
+                              label="Tricycle Condition (Overall)"
+                              fileKey="tricycle_condition"
+                              files={files}
+                              onFileChange={handleFileChange}
+                              hasError={!!fieldErrors.tricycle_condition}
+                              accept="image/*"
+                            />
+                          </div>
+                          <FileUploadBox
+                            label="Left Signal Light"
+                            fileKey="left_signal"
+                            required={false}
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={false}
+                            accept="image/*"
+                          />
+                          <FileUploadBox
+                            label="Right Signal Light"
+                            fileKey="right_signal"
+                            required={false}
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={false}
+                            accept="image/*"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <SectionHeader icon={Home} title="Garage Photos" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <FileUploadBox
+                            label="Garage Condition"
+                            fileKey="garage_condition"
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={!!fieldErrors.garage_condition}
+                            accept="image/*"
+                          />
+                          <FileUploadBox
+                            label="Garage with Tricycle"
+                            fileKey="garage_photo"
+                            required={false}
+                            files={files}
+                            onFileChange={handleFileChange}
+                            hasError={false}
+                            accept="image/*"
+                          />
+                        </div>
+                      </div>
+                      <div className="pt-6 flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={goBack}
+                          className="px-8 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition-all"
+                        >
+                          ← Previous
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={loading}
+                          className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {loading ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />{" "}
+                              Submitting...
+                            </>
+                          ) : (
+                            "Submit Application"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── HELP BOX ── */}
+              <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-8 rounded-2xl flex items-center justify-between shadow-lg">
+                <div>
+                  <h4 className="text-white font-bold text-lg mb-1">
+                    Need help with your application?
+                  </h4>
+                  <p className="text-slate-400 text-sm">
+                    Call the support line at (+63) 123-4567
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="bg-white text-slate-900 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all shadow"
+                >
+                  Contact Support
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
 
-      {/* ── Success Modal ── */}
+      {/* ── SUCCESS MODAL ── */}
       {success && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-green-500">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-emerald-500 animate-in zoom-in-95">
             <div className="p-12 text-center">
-              <CheckCircle size={80} className="text-zinc-900 mb-8 mx-auto" />
-              <h1 className="text-3xl font-bold text-black mb-4">
-                Application Sent
+              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle size={48} className="text-emerald-600" />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 mb-3">
+                Application Submitted!
               </h1>
-              <p className="text-xl text-zinc-500 mb-12 max-w-md mx-auto">
-                Your request for {appType} has been submitted successfully to
-                the municipal hall.
+              <p className="text-sm text-slate-600 mb-8 max-w-sm mx-auto">
+                Your {appType} application has been successfully submitted to
+                the municipal office.
               </p>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-3">
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">
-                  Franchise Number
-                </p>
-                <p className="text-lg font-black text-blue-700 tracking-widest">
-                  {submittedFranchiseNumber}
-                </p>
-              </div>
-
-              <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-8">
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">
-                  Control Number
-                </p>
-                <p className="text-base font-black text-orange-600 tracking-widest">
-                  {submittedControlNumber}
-                </p>
+              <div className="space-y-3 mb-8">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">
+                    Franchise Number
+                  </p>
+                  <p className="text-lg font-black text-blue-700 tracking-widest">
+                    {submittedFranchiseNumber}
+                  </p>
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">
+                    Control Number
+                  </p>
+                  <p className="text-base font-black text-orange-600 tracking-widest">
+                    {submittedControlNumber}
+                  </p>
+                </div>
               </div>
 
               <button
                 onClick={() => {
                   handleReset();
-                  navigate("/applicant/apply");
+                  setAppType("");
                 }}
-                className="px-8 py-3 bg-black text-white rounded-lg font-bold text-lg hover:bg-zinc-800 w-full"
+                className="w-full px-8 py-4 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg"
               >
-                Return to Dashboard
+                View My Applications
               </button>
             </div>
           </div>

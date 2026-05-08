@@ -382,7 +382,8 @@ function ConfigurationGroup({ collapsed, location, navigate }) {
   const isAnyChildActive = CONFIG_CHILDREN.some(
     (c) => location.pathname === c.path,
   );
-  const [open, setOpen] = useState(isAnyChildActive);
+  const [manualOpen, setManualOpen] = useState(false);
+  const open = isAnyChildActive || manualOpen;
 
   // ── Collapsed: flat icon buttons ─────────────────────────────────────────
   if (collapsed) {
@@ -422,7 +423,7 @@ function ConfigurationGroup({ collapsed, location, navigate }) {
     <div>
       {/* Parent trigger */}
       <button
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => setManualOpen((prev) => !prev)}
         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
           isAnyChildActive
             ? "bg-gray-100 text-gray-900"
@@ -508,6 +509,7 @@ export default function AdminLayout({ children }) {
   const [appointmentNotif, setAppointmentNotif] = useState(null);
   const [applicationNotif, setApplicationNotif] = useState(null);
   const [adminProfile, setAdminProfile] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const dropdownRef = useRef();
   const seenIds = useRef(new Set());
@@ -519,21 +521,32 @@ export default function AdminLayout({ children }) {
     localStorage.setItem("admin_sidebar_collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
 
-  // ── Load admin profile ──────────────────────────────────────────────────
+  // ── Load admin profile & user ID ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
 
-      const { data } = await supabase
+      if (userError || !user || cancelled) {
+        console.error("Failed to get user:", userError);
+        return;
+      }
+
+      setCurrentUserId(user.id);
+
+      const { data, error } = await supabase
         .from("profiles")
         .select("full_name, email, role")
         .eq("id", user.id)
         .single();
+
+      if (error) {
+        console.error("Failed to load profile:", error);
+      }
 
       if (!cancelled) {
         setAdminProfile(
@@ -554,26 +567,30 @@ export default function AdminLayout({ children }) {
 
   // ── Realtime notifications ──────────────────────────────────────────────
   useEffect(() => {
+    if (!currentUserId) return;
+
     let channel;
     let cancelled = false;
 
-    // ✅ FIXED: Added recipient_id filter
     async function loadUnread() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (cancelled) return;
 
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
-        .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
         .eq("recipient_type", "admin")
+        .or(`recipient_id.is.null,recipient_id.eq.${currentUserId}`)
         .eq("is_read", false)
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (cancelled || error) return;
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Failed to load notifications:", error);
+        return;
+      }
+
       const rows = data || [];
       rows.forEach((n) => seenIds.current.add(n.id));
       setBellNotifs(rows.slice(0, 10));
@@ -581,24 +598,32 @@ export default function AdminLayout({ children }) {
     }
 
     async function setupRealtime() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (cancelled) return;
 
       channel = supabase
-        .channel(`admin-layout-notif-${user.id}`)
+        .channel(`admin-layout-notif-${currentUserId}`)
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications" },
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_type=eq.admin`,
+          },
           async (payload) => {
             if (cancelled) return;
             const row = payload.new;
-            if (row.recipient_type !== "admin") return;
-            if (row.recipient_id && row.recipient_id !== user.id) return;
+
+            // Only show if it's for this admin (or null = broadcast)
+            if (row.recipient_id && row.recipient_id !== currentUserId) {
+              return;
+            }
+
+            // Prevent duplicates
             if (seenIds.current.has(row.id)) return;
             seenIds.current.add(row.id);
 
+            // Enrich with sender profile
             let enriched = { ...row, profiles: null };
             if (row.sender_id) {
               const { data: p } = await supabase
@@ -615,10 +640,24 @@ export default function AdminLayout({ children }) {
         )
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications" },
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_type=eq.admin`,
+          },
           (payload) => {
             if (cancelled) return;
             const updated = payload.new;
+
+            // Only process if it's for this admin or broadcast
+            if (
+              updated.recipient_id &&
+              updated.recipient_id !== currentUserId
+            ) {
+              return;
+            }
+
             if (updated.is_read) {
               setBellNotifs((prev) => prev.filter((n) => n.id !== updated.id));
               setUnreadCount((prev) => Math.max(prev - 1, 0));
@@ -631,6 +670,7 @@ export default function AdminLayout({ children }) {
     loadUnread();
     setupRealtime();
 
+    // Custom events for external updates
     const onCount = (e) => setUnreadCount(e.detail?.count ?? e.detail ?? 0);
     const onRows = (e) => setBellNotifs(e.detail || []);
     window.addEventListener("adminUnreadCount", onCount);
@@ -642,7 +682,7 @@ export default function AdminLayout({ children }) {
       window.removeEventListener("adminUnreadCount", onCount);
       window.removeEventListener("admin_bell_rows", onRows);
     };
-  }, []);
+  }, [currentUserId]);
 
   // ── Close bell dropdown on outside click ───────────────────────────────
   useEffect(() => {
@@ -657,15 +697,22 @@ export default function AdminLayout({ children }) {
 
   // ── Bell notification click ─────────────────────────────────────────────
   const handleBellNotifClick = async (notif) => {
-    await supabase
+    // Mark as read
+    const { error } = await supabase
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notif.id);
 
+    if (error) {
+      console.error("Failed to mark notification as read:", error);
+    }
+
+    // Update local state
     setBellNotifs((prev) => prev.filter((n) => n.id !== notif.id));
     setUnreadCount((prev) => Math.max(prev - 1, 0));
     setShowDropdown(false);
 
+    // Route based on category
     const cat = getCategory(notif);
     if (cat === "appointment") {
       setAppointmentNotif(notif);
@@ -675,6 +722,8 @@ export default function AdminLayout({ children }) {
       setApplicationNotif(notif);
       return;
     }
+
+    // Default routing
     if (notif.application_id) {
       navigate(`/admin/applications/${notif.application_id}`);
     } else {
@@ -682,19 +731,20 @@ export default function AdminLayout({ children }) {
     }
   };
 
-  // ✅ FIXED: Added recipient_id filter
   const markAllAsRead = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!currentUserId) return;
 
-    await supabase
+    const { error } = await supabase
       .from("notifications")
       .update({ is_read: true })
-      .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
       .eq("recipient_type", "admin")
+      .or(`recipient_id.is.null,recipient_id.eq.${currentUserId}`)
       .eq("is_read", false);
+
+    if (error) {
+      console.error("Failed to mark all as read:", error);
+      return;
+    }
 
     setBellNotifs([]);
     setUnreadCount(0);

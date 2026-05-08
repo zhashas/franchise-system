@@ -1,107 +1,467 @@
-import { useEffect, useState } from "react"
-import { supabase } from "../../lib/supabaseClient"
-import ApplicantLayout from "../../components/ApplicantLayout"
+// src/pages/applicant/ApplicantAppointments.jsx
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import ApplicantLayout from "../../components/ApplicantLayout";
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  ChevronRight,
+  CheckCircle2,
+  AlertCircle,
+  XCircle,
+  X,
+} from "lucide-react";
+
+const cn = (...classes) => classes.filter(Boolean).join(" ");
+
+// ── Utility Functions ────────────────────────────────────────────────────
+const formatDate = (dateString) => {
+  const date = new Date(dateString);
+  const month = date.toLocaleString("en-US", { month: "short" });
+  const day = String(date.getDate()).padStart(2, "0");
+  return { month, day };
+};
+
+const formatFullDate = (dateString) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-PH", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+const formatDateShort = (dateString) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+  });
+};
 
 export default function ApplicantAppointments() {
-  const [appointments, setAppointments] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
 
   useEffect(() => {
     const fetchAppointments = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
-      const { data } = await supabase
-        .from("appointments")
-        .select("*, applications(type)")
-        .eq("applicant_id", user.id)
-        .order("scheduled_date", { ascending: true })
-      setAppointments(data || [])
-      setLoading(false)
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const { data } = await supabase
+          .from("appointments")
+          .select("*, applications(type)")
+          .eq("applicant_id", user.id)
+          .order("scheduled_date", { ascending: true });
+
+        setAppointments(data || []);
+      } catch (error) {
+        console.error("Error fetching appointments:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAppointments();
+  }, []);
+
+  const getStatusConfig = (status) => {
+    switch (status) {
+      case "confirmed":
+        return {
+          label: "Confirmed",
+          icon: CheckCircle2,
+          color: "text-blue-700",
+          bg: "bg-blue-100",
+          headerGradient: "from-blue-600 to-indigo-800",
+          indicatorColor: "bg-blue-500",
+        };
+      case "completed":
+        return {
+          label: "Completed",
+          icon: CheckCircle2,
+          color: "text-emerald-700",
+          bg: "bg-emerald-100",
+          headerGradient: "from-emerald-600 to-emerald-800",
+          indicatorColor: "bg-emerald-500",
+        };
+      case "cancelled":
+        return {
+          label: "Cancelled",
+          icon: XCircle,
+          color: "text-rose-700",
+          bg: "bg-rose-100",
+          headerGradient: "from-rose-600 to-rose-800",
+          indicatorColor: "bg-rose-500",
+        };
+      default:
+        return {
+          label: "Pending",
+          icon: AlertCircle,
+          color: "text-amber-700",
+          bg: "bg-yellow-100",
+          headerGradient: "from-amber-600 to-amber-800",
+          indicatorColor: "bg-amber-500",
+        };
     }
-    fetchAppointments()
-  }, [])
+  };
 
-  const statusColor = (status) => {
-    if (status === "confirmed") return "bg-blue-100 text-blue-700"
-    if (status === "completed") return "bg-green-100 text-green-700"
-    if (status === "cancelled") return "bg-red-100 text-red-700"
-    return "bg-yellow-100 text-yellow-700"
-  }
+  const stats = [
+    {
+      label: "Active Sessions",
+      val: appointments.filter((a) => a.status === "confirmed").length,
+      detail: "● Coming up",
+      color: "text-blue-600",
+    },
+    {
+      label: "Completed",
+      val: appointments.filter((a) => a.status === "completed").length,
+      detail: "✓ History updated",
+      color: "text-emerald-600",
+    },
+    {
+      label: "Rescheduled",
+      val: appointments.filter((a) => a.status === "cancelled").length,
+      detail:
+        appointments.filter((a) => a.status === "cancelled").length > 0
+          ? "⚠️ Action needed"
+          : "— No records",
+      color:
+        appointments.filter((a) => a.status === "cancelled").length > 0
+          ? "text-red-600"
+          : "text-slate-400 opacity-60",
+    },
+  ];
 
-  // ✅ Always render inside ApplicantLayout — no more white screen
   return (
     <ApplicantLayout>
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-blue-900">📅 My Appointments</h1>
-          <p className="text-gray-500 text-sm">View your scheduled appointments with the franchise office</p>
+      <div className="space-y-8 animate-in max-w-8xl mx-auto">
+        {/* ── HEADER ── */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight">
+              Appointments
+            </h1>
+            <p className="text-slate-500 text-sm font-medium mt-1">
+              Manage your scheduled sessions with the TFU offices.
+            </p>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-4">
-            <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
-            <p className="text-sm font-medium">Loading appointments…</p>
-          </div>
-        ) : (
-          <>
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {[
-                { label: "Upcoming",               value: appointments.filter(a => a.status === "confirmed").length, color: "border-blue-500" },
-                { label: "Completed",              value: appointments.filter(a => a.status === "completed").length, color: "border-green-500" },
-                { label: "Cancelled / Rescheduled", value: appointments.filter(a => a.status === "cancelled").length, color: "border-red-500" },
-              ].map((stat, i) => (
-                <div key={i} className={`bg-white rounded-xl p-4 shadow-sm border-t-4 ${stat.color}`}>
-                  <p className="text-2xl font-bold text-blue-900">{stat.value}</p>
-                  <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
+        {/* ── MAIN GRID ── */}
+        <div className="grid grid-cols-12 gap-8">
+          {/* ── LEFT SECTION ── */}
+          <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+            {/* ── STATS ── */}
+            <div className="grid grid-cols-3 gap-4">
+              {stats.map((stat, i) => (
+                <div
+                  key={i}
+                  className="bg-white p-4 rounded-xl border border-green-500 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono">
+                    {stat.label}
+                  </p>
+                  <p className="text-2xl font-bold text-slate-800 mt-2">
+                    {stat.val}
+                  </p>
+                  <div
+                    className={cn(
+                      "mt-2 text-[10px] font-bold uppercase tracking-widest",
+                      stat.color,
+                    )}
+                  >
+                    {stat.detail}
+                  </div>
                 </div>
               ))}
             </div>
 
-            {appointments.length === 0 ? (
-              <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-400">
-                <p className="text-5xl mb-3">📅</p>
-                <p className="font-medium">No appointments scheduled yet.</p>
-                <p className="text-sm mt-1">The admin will schedule an appointment once your application is under review.</p>
+            {/* ── APPOINTMENTS LIST ── */}
+            <div className="bg-white rounded-2xl border border-green-500 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+              {/* Header */}
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                  Schedule Pipeline
+                </h2>
+                <div className="flex gap-2">
+                  <button className="p-1 px-3 bg-white border border-slate-200 rounded text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition">
+                    Priority
+                  </button>
+                  <button className="p-1 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-600 transition">
+                    All History
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              {loading ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+                    <p className="text-xs text-slate-400 font-medium">
+                      Loading appointments…
+                    </p>
+                  </div>
+                </div>
+              ) : appointments.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center py-12">
+                    <Calendar
+                      size={40}
+                      className="text-slate-200 mx-auto mb-4"
+                    />
+                    <p className="font-semibold text-slate-600 text-sm">
+                      No appointments scheduled yet
+                    </p>
+                    <p className="text-xs text-slate-400 mt-2">
+                      The admin will schedule an appointment once your
+                      application is under review.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 divide-y divide-slate-100">
+                  {appointments.map((apt) => {
+                    const cfg = getStatusConfig(apt.status);
+                    const isActive = selectedAppointment?.id === apt.id;
+                    const { month, day } = formatDate(apt.scheduled_date);
+
+                    return (
+                      <div
+                        key={apt.id}
+                        onClick={() => setSelectedAppointment(apt)}
+                        className={cn(
+                          "group flex items-center gap-4 px-6 py-5 cursor-pointer transition-all",
+                          isActive
+                            ? "bg-blue-50/50 border-l-4 border-blue-600"
+                            : "hover:bg-slate-50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "w-12 h-12 rounded-lg flex flex-col items-center justify-center shrink-0 transition-colors",
+                            apt.status === "completed"
+                              ? "bg-emerald-50 text-emerald-600"
+                              : apt.status === "confirmed"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-slate-100 text-slate-400",
+                          )}
+                        >
+                          <span className="text-[10px] font-bold uppercase">
+                            {month}
+                          </span>
+                          <span className="text-lg font-bold leading-none">
+                            {day}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start gap-2">
+                            <h3 className="text-sm font-bold text-slate-800 truncate">
+                              {apt.purpose_description ||
+                                `Franchise ${apt.applications?.type || "Application"}`}
+                            </h3>
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded text-[10px] font-bold uppercase shrink-0",
+                                cfg.bg,
+                                cfg.color,
+                              )}
+                            >
+                              {cfg.label}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            <Clock size={12} className="inline mr-1" />
+                            {apt.scheduled_time}
+                            {apt.office_location && (
+                              <>
+                                {" "}
+                                • <MapPin size={12} className="inline mr-1" />
+                                {apt.office_location}
+                              </>
+                            )}
+                          </p>
+                        </div>
+
+                        <ChevronRight
+                          size={18}
+                          className={cn(
+                            "transition-colors",
+                            isActive
+                              ? "text-blue-600"
+                              : "text-slate-200 group-hover:text-slate-400",
+                          )}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 text-[10px] text-center font-bold text-slate-400 italic border-t border-slate-100">
+                ⏰ Ensure you arrive 15 minutes before your scheduled inspection
+                time.
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT SECTION - DETAIL CARD ── */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col max-h-screen lg:sticky lg:top-8">
+            {!selectedAppointment ? (
+              <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-200 shadow-sm">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-slate-300 mb-4 shadow-sm">
+                  <Calendar size={32} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-600">
+                  No Appointment Selected
+                </h4>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                  Select a session from the list to view its details and
+                  instructions.
+                </p>
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr className="text-left text-gray-500">
-                      <th className="px-6 py-3">Date</th>
-                      <th className="px-6 py-3">Time</th>
-                      <th className="px-6 py-3">Purpose</th>
-                      <th className="px-6 py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {appointments.map((apt) => (
-                      <tr key={apt.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="px-6 py-4 text-gray-700">
-                          {new Date(apt.scheduled_date).toLocaleDateString("en-PH", { month: "numeric", day: "numeric", year: "numeric" })}
-                        </td>
-                        <td className="px-6 py-4 text-gray-700">{apt.scheduled_time}</td>
-                        <td className="px-6 py-4 capitalize text-blue-900 font-medium">
-                          {apt.applications?.type ? `Franchise ${apt.applications.type}` : "—"}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColor(apt.status)}`}>
-                            {apt.status}
+              <div className="flex-1 bg-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white ring-1 ring-white/10">
+                {/* Header */}
+                <div
+                  className={cn(
+                    "relative h-32 p-6 flex items-end transition-colors bg-gradient-to-br",
+                    getStatusConfig(selectedAppointment.status).headerGradient,
+                  )}
+                >
+                  <button
+                    onClick={() => setSelectedAppointment(null)}
+                    className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                  <div>
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-white/80">
+                      Session Insight
+                    </p>
+                    <h2 className="text-xl font-bold leading-tight mt-1">
+                      {selectedAppointment.purpose_description ||
+                        `Franchise ${selectedAppointment.applications?.type || "Application"}`}
+                    </h2>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 p-6 space-y-6 overflow-y-auto">
+                  {/* Instructions */}
+                  <section>
+                    <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest mb-2">
+                      Instructions
+                    </h4>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                      <p className="text-sm leading-relaxed text-slate-300 italic">
+                        "
+                        {selectedAppointment.message ||
+                          "No specific instructions provided. Please contact the office for details."}
+                        "
+                      </p>
+                    </div>
+                  </section>
+
+                  {/* Tracking */}
+                  <section className="space-y-4">
+                    <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest">
+                      Status Tracking
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <div className="flex-1 flex justify-between">
+                          <span className="text-xs font-medium">
+                            Schedule Proposed
                           </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="px-6 py-4 bg-gray-50 border-t text-sm text-gray-500">
-                  💡 Need help? Contact the Tricycle Franchising Unit for schedule changes.
+                          <span className="text-[10px] text-slate-500">
+                            {selectedAppointment.created_at
+                              ? formatDateShort(selectedAppointment.created_at)
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "w-2 h-2 rounded-full",
+                            selectedAppointment.status === "completed"
+                              ? "bg-emerald-500"
+                              : "bg-blue-500",
+                          )}
+                        />
+                        <div className="flex-1 flex justify-between">
+                          <span className="text-xs font-bold capitalize">
+                            {selectedAppointment.status}
+                          </span>
+                          <span className="text-[10px] text-blue-400">
+                            Current
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                      <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                        Time
+                      </p>
+                      <p className="text-sm font-bold">
+                        {selectedAppointment.scheduled_time}
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                      <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                        Location
+                      </p>
+                      <p className="text-sm font-bold">
+                        {selectedAppointment.office_location || "TBD"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Date Info */}
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                    <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                      Scheduled Date
+                    </p>
+                    <p className="text-sm font-bold">
+                      {formatFullDate(selectedAppointment.scheduled_date)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 bg-slate-800/40 flex items-center justify-between border-t border-slate-800/50">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full border-2 border-slate-700 bg-slate-600 flex items-center justify-center text-[10px] font-bold">
+                      👤
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest italic">
+                    Officer on duty
+                  </span>
                 </div>
               </div>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </ApplicantLayout>
-  )
+  );
 }
