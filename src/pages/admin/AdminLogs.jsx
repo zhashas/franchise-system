@@ -16,6 +16,7 @@ import {
   Clock,
   Globe,
   User,
+  Trash2,
 } from "lucide-react";
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
@@ -26,7 +27,6 @@ const ROLES = [
   { value: "applicant", label: "Applicant" },
 ];
 
-// Only login and logout are tracked in this log view
 const ACTION_TYPES = [
   { value: "all", label: "All Events" },
   { value: "login", label: "Login" },
@@ -93,8 +93,70 @@ const fmtRelative = (d) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
+/* ── Delete Confirm Modal ─────────────────────────────────────────────────── */
+function DeleteConfirmModal({ count, onConfirm, onCancel, deleting }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-sm mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-red-50 border-b border-red-100 px-5 py-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center flex-shrink-0">
+            <Trash2 size={16} className="text-red-600" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">Delete Logs</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              This action cannot be undone
+            </p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4">
+          <p className="text-sm text-gray-700">
+            Are you sure you want to permanently delete{" "}
+            <span className="font-bold text-red-600">
+              {count} {count === 1 ? "log" : "logs"}
+            </span>
+            ?
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Deleted logs cannot be recovered.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 pb-5 flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={deleting}
+            className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="px-4 py-2 text-xs font-semibold rounded-xl bg-red-600 hover:bg-red-700 text-white transition disabled:opacity-60 flex items-center gap-2 shadow"
+          >
+            {deleting ? (
+              <>
+                <RefreshCw size={12} className="animate-spin" /> Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 size={12} /> Delete
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Log Row ──────────────────────────────────────────────────────────────── */
-function LogRow({ log, expanded, onToggle }) {
+function LogRow({ log, expanded, onToggle, selected, onSelect, onDelete }) {
   const meta = getActionMeta(log.action);
   const Icon = meta.icon;
   const hasExtra =
@@ -109,22 +171,36 @@ function LogRow({ log, expanded, onToggle }) {
 
   return (
     <div
-      className={`border rounded-xl overflow-hidden transition-all ${meta.border} mb-2 shadow-sm`}
+      className={`border rounded-xl overflow-hidden transition-all mb-2 shadow-sm ${
+        selected ? "border-red-300 ring-1 ring-red-200" : meta.border
+      }`}
     >
       {/* Main row */}
       <div
-        className={`flex items-center gap-3 px-4 py-3 ${meta.bg} ${hasExtra ? "cursor-pointer hover:brightness-95" : ""}`}
-        onClick={hasExtra ? onToggle : undefined}
+        className={`flex items-center gap-3 px-4 py-3 ${selected ? "bg-red-50" : meta.bg}`}
       >
-        {/* Action icon */}
+        {/* Checkbox */}
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelect(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 rounded border-gray-300 accent-red-500 cursor-pointer flex-shrink-0"
+        />
+
+        {/* Action icon — clicking expands details */}
         <div
-          className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-white shadow-sm border ${meta.border}`}
+          className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-white shadow-sm border ${meta.border} ${hasExtra ? "cursor-pointer" : ""}`}
+          onClick={hasExtra ? onToggle : undefined}
         >
           <Icon size={15} className={meta.color} />
         </div>
 
-        {/* User + action */}
-        <div className="flex-1 min-w-0">
+        {/* User + action — clicking expands details */}
+        <div
+          className={`flex-1 min-w-0 ${hasExtra ? "cursor-pointer" : ""}`}
+          onClick={hasExtra ? onToggle : undefined}
+        >
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-bold text-gray-800 truncate">
               {log.user_name || "—"}
@@ -155,7 +231,10 @@ function LogRow({ log, expanded, onToggle }) {
         </div>
 
         {/* Timestamp */}
-        <div className="text-right flex-shrink-0 hidden sm:block">
+        <div
+          className={`text-right flex-shrink-0 hidden sm:block ${hasExtra ? "cursor-pointer" : ""}`}
+          onClick={hasExtra ? onToggle : undefined}
+        >
           <p className="text-xs font-semibold text-gray-700">
             {fmtDate(log.created_at)}
           </p>
@@ -167,8 +246,9 @@ function LogRow({ log, expanded, onToggle }) {
           </p>
         </div>
 
+        {/* Expand chevron */}
         {hasExtra && (
-          <div className="flex-shrink-0 ml-1">
+          <div className="flex-shrink-0 ml-1 cursor-pointer" onClick={onToggle}>
             {expanded ? (
               <ChevronUp size={14} className="text-gray-400" />
             ) : (
@@ -176,6 +256,18 @@ function LogRow({ log, expanded, onToggle }) {
             )}
           </div>
         )}
+
+        {/* Delete button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title="Delete this log"
+          className="flex-shrink-0 ml-1 w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition"
+        >
+          <Trash2 size={13} />
+        </button>
       </div>
 
       {/* Expanded details */}
@@ -267,11 +359,22 @@ export default function AdminLogs() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // Delete modal state
+  const [deleteModal, setDeleteModal] = useState({
+    open: false,
+    ids: [], // array of IDs to delete
+    deleting: false,
+    error: null,
+  });
+
   // Filters
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  const [actionFilter, setActionFilter] = useState("all"); // "all" | "login" | "logout"
+  const [actionFilter, setActionFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -310,17 +413,68 @@ export default function AdminLogs() {
     setPage(0);
   };
 
+  /* ── Selection helpers ── */
+  const allOnPageSelected =
+    logs.length > 0 && logs.every((l) => selectedIds.has(l.id));
+  const someOnPageSelected =
+    logs.some((l) => selectedIds.has(l.id)) && !allOnPageSelected;
+
+  const handleSelectAll = (checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      logs.forEach((l) => (checked ? next.add(l.id) : next.delete(l.id)));
+      return next;
+    });
+  };
+
+  const handleSelectOne = (id, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      checked ? next.add(id) : next.delete(id);
+      return next;
+    });
+  };
+
+  /* ── Open delete modal ── */
+  const openDeleteModal = (ids) => {
+    setDeleteModal({ open: true, ids, deleting: false, error: null });
+  };
+
+  /* ── Confirm delete ── */
+  const handleConfirmDelete = async () => {
+    const { ids } = deleteModal;
+    setDeleteModal((prev) => ({ ...prev, deleting: true, error: null }));
+
+    const { error } = await supabase
+      .from("activity_logs")
+      .delete()
+      .in("id", ids);
+
+    if (error) {
+      setDeleteModal((prev) => ({
+        ...prev,
+        deleting: false,
+        error: error.message,
+      }));
+      return;
+    }
+
+    // Success — close modal, clear selection, refresh
+    setDeleteModal({ open: false, ids: [], deleting: false, error: null });
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    setRefreshKey((k) => k + 1);
+  };
+
   /* ── Fetch ── */
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       setLoading(true);
 
-      // Use getUser() — NOT getSession() — because getSession() reads the
-      // localStorage cache and can return null while Supabase is still in the
-      // middle of refreshing an expired token (triggered by tab-focus events).
-      // getUser() makes an actual server call and waits for any ongoing refresh
-      // to settle, so it never falsely reports the session as missing.
       const {
         data: { user },
         error: userError,
@@ -332,11 +486,10 @@ export default function AdminLogs() {
         return;
       }
 
-      // Always restrict to login and logout actions only
       let query = supabase
         .from("activity_logs")
         .select("*", { count: "exact" })
-        .in("action", ["login", "logout"]) // ← hard filter: only login/logout
+        .in("action", ["login", "logout"])
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
@@ -443,15 +596,34 @@ export default function AdminLogs() {
     !!search,
   ].filter(Boolean).length;
 
-  // Stats: count by role across current page
   const adminCount = logs.filter((l) => l.role === "admin").length;
   const staffCount = logs.filter((l) => l.role === "staff").length;
   const applicantCount = logs.filter((l) => l.role === "applicant").length;
   const loginCount = logs.filter((l) => l.action === "login").length;
   const logoutCount = logs.filter((l) => l.action === "logout").length;
 
+  const selectedOnPage = logs.filter((l) => selectedIds.has(l.id));
+
   return (
     <AdminLayout>
+      {/* Delete confirmation modal */}
+      {deleteModal.open && (
+        <DeleteConfirmModal
+          count={deleteModal.ids.length}
+          onConfirm={handleConfirmDelete}
+          onCancel={() =>
+            !deleteModal.deleting &&
+            setDeleteModal({
+              open: false,
+              ids: [],
+              deleting: false,
+              error: null,
+            })
+          }
+          deleting={deleteModal.deleting}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto space-y-5">
         {/* HEADER */}
         <div className="rounded-xl p-5 border bg-slate-50 border-slate-200 shadow-sm">
@@ -511,6 +683,26 @@ export default function AdminLogs() {
           </div>
         )}
 
+        {/* DELETE ERROR BANNER */}
+        {deleteModal.error && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm shadow-sm">
+            <AlertTriangle
+              size={16}
+              className="flex-shrink-0 mt-0.5 text-red-500"
+            />
+            <div className="flex-1">
+              <p className="font-semibold">Delete failed</p>
+              <p className="text-xs text-red-500 mt-0.5">{deleteModal.error}</p>
+            </div>
+            <button
+              onClick={() => setDeleteModal((p) => ({ ...p, error: null }))}
+              className="flex-shrink-0"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {/* STAT CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
@@ -559,7 +751,7 @@ export default function AdminLogs() {
           ].map((s, i) => (
             <div
               key={i}
-              className={`rounded-l border p-2 ${s.bg} ${s.border} shadow-sm`}
+              className={`rounded-xl border p-2 ${s.bg} ${s.border} shadow-sm`}
             >
               <p className={`text-2xl font-bold ${s.text}`}>{s.value}</p>
               <p className={`text-xs mt-0.5 font-medium ${s.text} opacity-80`}>
@@ -610,7 +802,6 @@ export default function AdminLogs() {
           {/* Expanded filters */}
           {showFilters && (
             <div className="px-4 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-              {/* Role filter */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
                   Role
@@ -628,7 +819,6 @@ export default function AdminLogs() {
                 </select>
               </div>
 
-              {/* Event type filter (login / logout) */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
                   Event Type
@@ -646,7 +836,6 @@ export default function AdminLogs() {
                 </select>
               </div>
 
-              {/* Date From */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
                   Date From
@@ -659,7 +848,6 @@ export default function AdminLogs() {
                 />
               </div>
 
-              {/* Date To */}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
                   Date To
@@ -685,6 +873,22 @@ export default function AdminLogs() {
             </div>
           )}
 
+          {/* Bulk action bar — visible only when rows are selected */}
+          {selectedOnPage.length > 0 && (
+            <div className="px-4 py-2.5 bg-red-50 border-b border-red-100 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-red-700">
+                {selectedOnPage.length}{" "}
+                {selectedOnPage.length === 1 ? "log" : "logs"} selected
+              </p>
+              <button
+                onClick={() => openDeleteModal(selectedOnPage.map((l) => l.id))}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white transition shadow-sm"
+              >
+                <Trash2 size={12} /> Delete Selected
+              </button>
+            </div>
+          )}
+
           {/* Log list */}
           <div className="p-4">
             {loading ? (
@@ -701,16 +905,39 @@ export default function AdminLogs() {
                 onClear={handleClearFilters}
               />
             ) : (
-              logs.map((log) => (
-                <LogRow
-                  key={log.id}
-                  log={log}
-                  expanded={expandedId === log.id}
-                  onToggle={() =>
-                    setExpandedId(expandedId === log.id ? null : log.id)
-                  }
-                />
-              ))
+              <>
+                {/* Select-all row */}
+                <div className="flex items-center gap-3 px-1 pb-2 mb-1 border-b border-gray-100">
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someOnPageSelected;
+                    }}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 accent-red-500 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-400 font-medium select-none">
+                    {allOnPageSelected
+                      ? "Deselect all on this page"
+                      : `Select all ${logs.length} on this page`}
+                  </span>
+                </div>
+
+                {logs.map((log) => (
+                  <LogRow
+                    key={log.id}
+                    log={log}
+                    expanded={expandedId === log.id}
+                    onToggle={() =>
+                      setExpandedId(expandedId === log.id ? null : log.id)
+                    }
+                    selected={selectedIds.has(log.id)}
+                    onSelect={(checked) => handleSelectOne(log.id, checked)}
+                    onDelete={() => openDeleteModal([log.id])}
+                  />
+                ))}
+              </>
             )}
           </div>
 
