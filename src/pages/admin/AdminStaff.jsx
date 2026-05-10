@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// pages/admin/AdminStaff.jsx
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
 import {
@@ -12,6 +13,7 @@ import {
   AlertCircle,
   ChevronRight,
   Shield,
+  RefreshCw,
 } from "lucide-react";
 
 /* ── Avatar ──────────────────────────────────────────────────────── */
@@ -47,7 +49,9 @@ const Toast = ({ msg, type, onClose }) => {
   }, [onClose]);
   return (
     <div
-      className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-sm font-semibold transition-all ${type === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"}`}
+      className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-sm font-semibold transition-all ${
+        type === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+      }`}
     >
       {type === "success" ? (
         <CheckCircle size={16} />
@@ -88,23 +92,35 @@ export default function AdminStaff() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [removing, setRemoving] = useState(false);
 
+  /* ── helpers ─────────────────────────────────────────────────── */
+  const showToast = useCallback(
+    (msg, type = "success") => setToast({ msg, type }),
+    [],
+  );
+
   /* ── fetch ───────────────────────────────────────────────────── */
-  const fetchStaff = async () => {
+  const fetchStaff = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("role", "staff")
-      .order("full_name", { ascending: true });
-    setStaff(data || []);
-    setLoading(false);
-  };
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("role", "staff")
+        .order("full_name", { ascending: true });
+
+      if (error) throw error;
+      setStaff(data || []);
+    } catch (err) {
+      console.error("[AdminStaff] Fetch error:", err);
+      showToast("Failed to load staff members.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchStaff();
-  }, []);
-
-  const showToast = (msg, type = "success") => setToast({ msg, type });
+  }, [fetchStaff]);
 
   /* ── promote ─────────────────────────────────────────────────── */
   const handlePromote = async (e) => {
@@ -112,12 +128,14 @@ export default function AdminStaff() {
     setPromoting(true);
     try {
       const email = promoteEmail.trim().toLowerCase();
-      const { data: found } = await supabase
+
+      const { data: found, error: findError } = await supabase
         .from("profiles")
         .select("*")
         .eq("email", email)
         .single();
-      if (!found) {
+
+      if (findError || !found) {
         showToast("No account found with that email.", "error");
         return;
       }
@@ -129,16 +147,20 @@ export default function AdminStaff() {
         showToast("Cannot demote an admin account.", "error");
         return;
       }
+
       const { error } = await supabase
         .from("profiles")
         .update({ role: "staff" })
         .eq("id", found.id);
+
       if (error) throw error;
+
       setPromoteEmail("");
       setShowAddModal(false);
-      showToast(`${found.full_name} has been promoted to Staff.`);
-      fetchStaff();
-    } catch {
+      showToast(`✓ ${found.full_name} has been promoted to Staff.`);
+      await fetchStaff();
+    } catch (err) {
+      console.error("[AdminStaff] Promote error:", err);
       showToast("Something went wrong. Try again.", "error");
     } finally {
       setPromoting(false);
@@ -148,27 +170,51 @@ export default function AdminStaff() {
   /* ── create ──────────────────────────────────────────────────── */
   const handleCreate = async (e) => {
     e.preventDefault();
+
+    if (!newStaff.full_name.trim()) {
+      showToast("Full name is required.", "error");
+      return;
+    }
+    if (!newStaff.email.trim()) {
+      showToast("Email is required.", "error");
+      return;
+    }
     if (newStaff.password.length < 6) {
       showToast("Password must be at least 6 characters.", "error");
       return;
     }
+
     setCreating(true);
     try {
       const {
         data: { session: adminSession },
+        error: sessionError,
       } = await supabase.auth.getSession();
-      if (!adminSession)
+
+      if (sessionError || !adminSession) {
         throw new Error(
           "Admin session not found. Please refresh and try again.",
         );
+      }
+
       const { data: signUpData, error: signUpError } =
         await supabase.auth.signUp({
           email: newStaff.email.trim().toLowerCase(),
           password: newStaff.password,
+          options: {
+            data: {
+              full_name: newStaff.full_name.trim(),
+              phone: newStaff.phone.trim(),
+              role: "staff",
+            },
+          },
         });
+
       if (signUpError) throw signUpError;
       if (!signUpData?.user) throw new Error("Sign-up returned no user.");
+
       const newUserId = signUpData.user.id;
+
       const { error: upsertError } = await supabase.from("profiles").upsert(
         {
           id: newUserId,
@@ -179,38 +225,57 @@ export default function AdminStaff() {
         },
         { onConflict: "id" },
       );
+
       if (upsertError) throw upsertError;
-      const { error: roleError } = await supabase
-        .from("profiles")
-        .update({ role: "staff" })
-        .eq("id", newUserId);
-      if (roleError)
-        console.warn("[AdminStaff] role update warning:", roleError.message);
+
+      // Restore admin session
       await supabase.auth.setSession({
         access_token: adminSession.access_token,
         refresh_token: adminSession.refresh_token,
       });
+
       const createdName = newStaff.full_name.trim();
       setNewStaff({ full_name: "", email: "", phone: "", password: "" });
       setShowAddModal(false);
-      showToast(`Staff account for ${createdName} created successfully!`);
-      fetchStaff();
+      showToast(`✓ Staff account for ${createdName} created successfully!`);
+      await fetchStaff();
     } catch (err) {
+      console.error("[AdminStaff] Create error:", err);
+
+      // Attempt to restore admin session on error
       try {
         const {
           data: { session: adminSession },
         } = await supabase.auth.getSession();
-        if (!adminSession) await supabase.auth.signOut();
-      } catch {
-        /* ignore */
+        if (adminSession) {
+          await supabase.auth.setSession({
+            access_token: adminSession.access_token,
+            refresh_token: adminSession.refresh_token,
+          });
+        }
+      } catch (restoreErr) {
+        console.error("[AdminStaff] Session restore failed:", restoreErr);
       }
-      showToast(err.message || "Failed to create staff account.", "error");
+
+      let errorMsg = "Failed to create staff account.";
+      if (
+        err.message?.includes("already registered") ||
+        err.message?.includes("duplicate key")
+      ) {
+        errorMsg = "This email is already registered.";
+      } else if (err.message?.includes("invalid email")) {
+        errorMsg = "Invalid email format.";
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+
+      showToast(errorMsg, "error");
     } finally {
       setCreating(false);
     }
   };
 
-  /* ── edit / remove ───────────────────────────────────────────── */
+  /* ── edit ────────────────────────────────────────────────────── */
   const openEdit = (member) => {
     setEditTarget(member);
     setEditForm({
@@ -221,37 +286,76 @@ export default function AdminStaff() {
 
   const handleSaveEdit = async (e) => {
     e.preventDefault();
-    setSaving(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ full_name: editForm.full_name, phone: editForm.phone })
-      .eq("id", editTarget.id);
-    setSaving(false);
-    if (error) {
-      showToast("Failed to update staff info.", "error");
+
+    if (!editForm.full_name.trim()) {
+      showToast("Full name cannot be empty.", "error");
       return;
     }
-    showToast("Staff info updated successfully.");
-    setEditTarget(null);
-    fetchStaff();
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          full_name: editForm.full_name.trim(),
+          phone: editForm.phone.trim(),
+        })
+        .eq("id", editTarget.id);
+
+      if (error) throw error;
+
+      // Optimistic update
+      setStaff((prev) =>
+        prev.map((s) =>
+          s.id === editTarget.id
+            ? {
+                ...s,
+                full_name: editForm.full_name.trim(),
+                phone: editForm.phone.trim(),
+              }
+            : s,
+        ),
+      );
+
+      showToast("✓ Staff info updated successfully.");
+      setEditTarget(null);
+      await fetchStaff();
+    } catch (err) {
+      console.error("[AdminStaff] Edit error:", err);
+      showToast("Failed to update staff info.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
+  /* ── remove ──────────────────────────────────────────────────── */
   const handleRemove = async () => {
     setRemoving(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role: "applicant" })
-      .eq("id", removeTarget.id);
-    setRemoving(false);
-    if (error) {
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ role: "applicant" })
+        .eq("id", removeTarget.id);
+
+      if (error) throw error;
+
+      // Optimistic update — remove instantly from UI
+      setStaff((prev) => prev.filter((s) => s.id !== removeTarget.id));
+
+      showToast(`✓ ${removeTarget.full_name} has been removed from staff.`);
+      setRemoveTarget(null);
+
+      // Sync with DB
+      await fetchStaff();
+    } catch (err) {
+      console.error("[AdminStaff] Remove error:", err);
       showToast("Failed to remove staff member.", "error");
-      return;
+    } finally {
+      setRemoving(false);
     }
-    showToast(`${removeTarget.full_name} has been removed from staff.`);
-    setRemoveTarget(null);
-    fetchStaff();
   };
 
+  /* ── filter ──────────────────────────────────────────────────── */
   const filtered = staff.filter(
     (s) =>
       (s.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -271,8 +375,8 @@ export default function AdminStaff() {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tight leading-none">
-              <span className="text-gray-900 ">STAFF</span>
-              <span className="text-purple-500 ">COMMAND.</span>
+              <span className="text-gray-900">STAFF</span>
+              <span className="text-purple-500"> COMMAND.</span>
             </h1>
             <div className="mt-1 h-0.5 w-48 bg-gradient-to-r from-purple-500 to-transparent rounded-full" />
             <p className="text-sm text-gray-400 font-medium mt-2 tracking-wide">
@@ -302,12 +406,20 @@ export default function AdminStaff() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="flex-1 text-sm text-gray-700 placeholder-gray-300 outline-none bg-transparent min-w-0"
               />
-              {search && (
+              {search ? (
                 <button
                   onClick={() => setSearch("")}
                   className="text-[11px] font-bold text-gray-400 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded-lg transition flex-shrink-0"
                 >
                   Clear
+                </button>
+              ) : (
+                <button
+                  onClick={fetchStaff}
+                  className="text-gray-400 hover:text-purple-500 transition flex-shrink-0"
+                  title="Refresh"
+                >
+                  <RefreshCw size={14} />
                 </button>
               )}
             </div>
@@ -336,6 +448,14 @@ export default function AdminStaff() {
                   ? `No results for "${search}"`
                   : "No staff members enlisted yet. Use the recruitment panel to add personnel."}
               </p>
+              {!search && (
+                <button
+                  onClick={openRecruitment}
+                  className="mt-1 text-purple-500 hover:text-purple-600 text-sm font-black uppercase tracking-wider transition"
+                >
+                  + Enlist the first one
+                </button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -439,7 +559,7 @@ export default function AdminStaff() {
           )}
         </div>
 
-        {/* ── PROTOCOL BANNER (dark) ── */}
+        {/* ── PROTOCOL BANNER ── */}
         <div className="bg-gray-900 rounded-2xl px-6 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5 shadow-lg">
           <div className="flex items-start gap-4">
             <div className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -469,8 +589,8 @@ export default function AdminStaff() {
           ADD STAFF MODAL
       ══════════════════════════════════════════ */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
@@ -538,15 +658,22 @@ export default function AdminStaff() {
                       onChange={(e) => setPromoteEmail(e.target.value)}
                       placeholder="user@example.com"
                       required
-                      className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-purple-400 bg-gray-50 transition"
+                      className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 bg-gray-50 transition"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={promoting}
-                    className="w-full bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white font-black text-sm py-3 rounded-xl transition shadow"
+                    className="w-full bg-gray-900 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-sm py-3 rounded-xl transition shadow"
                   >
-                    {promoting ? "Promoting…" : "Promote to Staff"}
+                    {promoting ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <RefreshCw size={14} className="animate-spin" />
+                        Promoting…
+                      </span>
+                    ) : (
+                      "Promote to Staff"
+                    )}
                   </button>
                 </form>
               )}
@@ -605,7 +732,7 @@ export default function AdminStaff() {
                         }
                         placeholder={field.placeholder}
                         required
-                        className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-purple-400 bg-gray-50 transition"
+                        className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 bg-gray-50 transition"
                       />
                     </div>
                   ))}
@@ -613,14 +740,22 @@ export default function AdminStaff() {
                     <button
                       type="submit"
                       disabled={creating}
-                      className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white font-black text-sm py-3 rounded-xl transition shadow"
+                      className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-sm py-3 rounded-xl transition shadow"
                     >
-                      {creating ? "Creating Account…" : "Create Staff Account"}
+                      {creating ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <RefreshCw size={14} className="animate-spin" />
+                          Creating Account…
+                        </span>
+                      ) : (
+                        "Create Staff Account"
+                      )}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowAddModal(false)}
-                      className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
+                      disabled={creating}
+                      className="flex-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
                     >
                       Cancel
                     </button>
@@ -636,8 +771,8 @@ export default function AdminStaff() {
           EDIT MODAL
       ══════════════════════════════════════════ */}
       {editTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
                 <h2 className="text-base font-black text-gray-900">
@@ -678,17 +813,22 @@ export default function AdminStaff() {
                   key: "full_name",
                   type: "text",
                   placeholder: "Juan Dela Cruz",
+                  required: true,
                 },
                 {
                   label: "Phone",
                   key: "phone",
                   type: "tel",
                   placeholder: "09XXXXXXXXX",
+                  required: false,
                 },
               ].map((field) => (
                 <div key={field.key}>
                   <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
                     {field.label}
+                    {field.required && (
+                      <span className="text-red-400 ml-0.5">*</span>
+                    )}
                   </label>
                   <input
                     type={field.type}
@@ -700,8 +840,8 @@ export default function AdminStaff() {
                       }))
                     }
                     placeholder={field.placeholder}
-                    required={field.key === "full_name"}
-                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 bg-gray-50 transition"
+                    required={field.required}
+                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 bg-gray-50 transition"
                   />
                 </div>
               ))}
@@ -709,14 +849,22 @@ export default function AdminStaff() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white font-black text-sm py-3 rounded-xl transition shadow"
+                  className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-sm py-3 rounded-xl transition shadow"
                 >
-                  {saving ? "Saving…" : "Save Changes"}
+                  {saving ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <RefreshCw size={14} className="animate-spin" />
+                      Saving…
+                    </span>
+                  ) : (
+                    "Save Changes"
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditTarget(null)}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
+                  disabled={saving}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
                 >
                   Cancel
                 </button>
@@ -730,8 +878,8 @@ export default function AdminStaff() {
           REMOVE MODAL
       ══════════════════════════════════════════ */}
       {removeTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-6 py-6 text-center">
               <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
                 <Trash2 size={24} className="text-red-500" />
@@ -753,13 +901,21 @@ export default function AdminStaff() {
                 <button
                   onClick={handleRemove}
                   disabled={removing}
-                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 text-white font-black text-sm py-3 rounded-xl transition"
+                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-sm py-3 rounded-xl transition"
                 >
-                  {removing ? "Removing…" : "Yes, Remove"}
+                  {removing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <RefreshCw size={14} className="animate-spin" />
+                      Removing…
+                    </span>
+                  ) : (
+                    "Yes, Remove"
+                  )}
                 </button>
                 <button
                   onClick={() => setRemoveTarget(null)}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
+                  disabled={removing}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
                 >
                   Cancel
                 </button>

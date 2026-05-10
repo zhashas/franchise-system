@@ -746,12 +746,6 @@ export default function ApplicantDashboard() {
                   <FileText size={14} />
                   Recent Applications
                 </h2>
-                <button
-                  onClick={() => navigate("/applicant/applications")}
-                  className="text-xs text-blue-600 hover:text-blue-700 font-bold transition"
-                >
-                  View All →
-                </button>
               </div>
 
               {applications.length === 0 ? (
@@ -825,9 +819,7 @@ export default function ApplicantDashboard() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
-                              onClick={() =>
-                                navigate("/applicant/applications")
-                              }
+                              onClick={() => navigate("/applicant/apply")}
                               className="text-xs text-blue-600 hover:text-blue-700 font-semibold hover:underline"
                             >
                               View Details →

@@ -1,9 +1,9 @@
 // src/pages/applicant/Apply.jsx
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import ApplicantLayout from "../../components/ApplicantLayout";
-import { notifyAdmin } from "../../lib/notifications";
+import { notifyAdmin, notifyStaff } from "../../lib/notifications";
 import {
   CheckCircle,
   AlertCircle,
@@ -314,12 +314,10 @@ function StatusBanner({ status, releaseDate }) {
 function ApplicationSlotCard({ slotNumber, app, defaultExpanded = false }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
-  // Empty slot
   if (!app) {
     return (
       <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 overflow-hidden">
         <div className="px-6 py-5 flex items-center gap-4">
-          {/* Slot number badge */}
           <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
             <span className="text-sm font-black text-slate-400">
               {slotNumber}
@@ -345,13 +343,11 @@ function ApplicationSlotCard({ slotNumber, app, defaultExpanded = false }) {
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Card Header — clickable to expand */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="w-full px-6 py-5 bg-slate-50 border-b border-slate-200 flex items-center gap-4 hover:bg-slate-100 transition-colors text-left"
       >
-        {/* Slot number badge */}
         <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
           <span className="text-sm font-black text-white">{slotNumber}</span>
         </div>
@@ -396,14 +392,12 @@ function ApplicationSlotCard({ slotNumber, app, defaultExpanded = false }) {
         </div>
       </button>
 
-      {/* Expandable Body */}
       {expanded && (
         <div className="px-6 py-8 space-y-6">
           {/* Progress Steps */}
           <div>
             <h4 className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-              <TrendingUp size={12} />
-              Application Progress
+              <TrendingUp size={12} /> Application Progress
             </h4>
             <div className="flex items-start justify-between">
               {steps.map((step, i) => {
@@ -462,10 +456,8 @@ function ApplicationSlotCard({ slotNumber, app, defaultExpanded = false }) {
             </div>
           </div>
 
-          {/* Status Banner */}
           <StatusBanner status={app.status} releaseDate={app.release_date} />
 
-          {/* Application Details Grid */}
           {app.details && (
             <div>
               <h4 className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-3">
@@ -1076,47 +1068,173 @@ export default function Apply() {
   const errorRef = useRef(null);
 
   // ── Fetch user's applications ─────────────────────────────────────────────
-  const fetchMyApplications = async () => {
+  const fetchMyApplications = useCallback(async () => {
     setLoadingApps(true);
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("applications")
         .select("*")
         .eq("applicant_id", user.id)
         .order("created_at", { ascending: true });
+      if (error) throw error;
       setMyApplications(data ?? []);
     } catch (err) {
       console.error("[Apply] fetchMyApplications:", err);
+    } finally {
+      setLoadingApps(false);
     }
-    setLoadingApps(false);
-  };
-
-  useEffect(() => {
-    fetchMyApplications();
   }, []);
 
-  // ── Check approved notif on mount ─────────────────────────────────────────
+  // ── Initial fetch ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const checkApprovedNotif = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("recipient_id", user.id)
-        .eq("is_read", false)
-        .or("notification_type.eq.status_approved,title.ilike.%approved%")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (data && data.length > 0) setApprovedNotif(data[0]);
+    fetchMyApplications();
+  }, [fetchMyApplications]);
+
+  // ── Realtime: watch this applicant's rows only ────────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const setup = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user || !isMounted) return;
+
+        // ✅ Unique name per mount — eliminates "already subscribed" error
+        const channelName = `applicant-apps-${user.id}-${Date.now()}`;
+
+        channel = supabase
+          .channel(channelName)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "applications",
+              filter: `applicant_id=eq.${user.id}`,
+            },
+            (payload) => {
+              if (!isMounted) return;
+
+              if (payload.eventType === "INSERT") {
+                // Re-fetch for full row data
+                fetchMyApplications();
+              } else if (payload.eventType === "UPDATE") {
+                // Instantly merge status change into UI
+                setMyApplications((prev) =>
+                  prev.map((a) =>
+                    a.id === payload.new.id ? { ...a, ...payload.new } : a,
+                  ),
+                );
+              } else if (payload.eventType === "DELETE") {
+                setMyApplications((prev) =>
+                  prev.filter((a) => a.id !== payload.old.id),
+                );
+              }
+            },
+          )
+          .subscribe((status) => {
+            if (status === "CHANNEL_ERROR") {
+              console.error("[Apply] Realtime channel error:", channelName);
+            }
+          });
+      } catch (err) {
+        console.error("[Apply] Realtime setup error:", err);
+      }
     };
-    checkApprovedNotif();
+
+    setup();
+
+    return () => {
+      isMounted = false;
+      if (channel) {
+        supabase.removeChannel(channel).catch(console.error);
+        channel = null;
+      }
+    };
+  }, [fetchMyApplications]);
+
+  // ── Watch for approved notifications via realtime ─────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const setup = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user || !isMounted) return;
+
+        // Check once on mount
+        const { data } = await supabase
+          .from("notifications")
+          .select("*")
+          .eq("recipient_id", user.id)
+          .eq("is_read", false)
+          .or(
+            "notification_type.eq.application_approved," +
+              "notification_type.eq.status_approved," +
+              "title.ilike.%approved%",
+          )
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (data && data.length > 0 && isMounted) {
+          setApprovedNotif(data[0]);
+        }
+
+        // ✅ Also subscribe so popup appears in real-time when admin approves
+        const channelName = `applicant-notifs-${user.id}-${Date.now()}`;
+
+        channel = supabase
+          .channel(channelName)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "notifications",
+              filter: `recipient_id=eq.${user.id}`,
+            },
+            (payload) => {
+              if (!isMounted) return;
+              const n = payload.new;
+              const isApproval =
+                n.notification_type === "application_approved" ||
+                n.notification_type === "status_approved" ||
+                n.title?.toLowerCase().includes("approved");
+              if (isApproval && !n.is_read) {
+                setApprovedNotif(n);
+              }
+            },
+          )
+          .subscribe((status) => {
+            if (status === "CHANNEL_ERROR") {
+              console.error("[Apply] Notifications channel error");
+            }
+          });
+      } catch (err) {
+        console.error("[Apply] Notification setup error:", err);
+      }
+    };
+
+    setup();
+
+    return () => {
+      isMounted = false;
+      if (channel) {
+        supabase.removeChannel(channel).catch(console.error);
+        channel = null;
+      }
+    };
   }, []);
 
   // ── Load franchises for renewal ───────────────────────────────────────────
@@ -1170,12 +1288,14 @@ export default function Apply() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+
       const { data: pending } = await supabase
         .from("applications")
         .select("id,status,type")
         .eq("applicant_id", user.id)
         .in("status", ["pending", "under_review"])
         .limit(1);
+
       if (pending?.length > 0) {
         setBlockReason(
           `You already have a ${pending[0].type} application being processed (status: ${pending[0].status}).`,
@@ -1183,15 +1303,18 @@ export default function Apply() {
         setCheckingStatus(false);
         return;
       }
+
       const { data: approved } = await supabase
         .from("applications")
         .select("id")
         .eq("applicant_id", user.id)
         .eq("status", "approved");
-      if (approved?.length >= 3)
+
+      if (approved?.length >= 3) {
         setBlockReason(
           "You have reached the maximum limit of 3 approved franchises.",
         );
+      }
     } catch (err) {
       console.error(err);
     }
@@ -1253,31 +1376,41 @@ export default function Apply() {
     if (!formData.address.trim()) errs.address = true;
     if (!formData.date_of_birth) errs.date_of_birth = true;
     if (!formData.civil_status) errs.civil_status = true;
+
     const contactErr = validateContactNumber(formData.contact_number);
     if (contactErr) {
       errs.contact_number = true;
       inline.contact_number = contactErr;
     }
+
     if (!formData.make) errs.make = true;
     if (!formData.color) errs.color = true;
+
     const engineErr = validateEngineNumber(formData.motor_no);
     if (engineErr) {
       errs.motor_no = true;
       inline.motor_no = engineErr;
     }
+
     const chassisErr = validateChassisNumber(formData.chassis_no);
     if (chassisErr) {
       errs.chassis_no = true;
       inline.chassis_no = chassisErr;
     }
+
     if (!formData.plate_no.trim()) errs.plate_no = true;
     if (appType === "renewal" && !selectedFranchise)
       errs.selectedFranchise = true;
+
     setFieldErrors(errs);
     setInlineErrors(inline);
+
     if (Object.keys(errs).length > 0) {
       setError("⚠️ Please fix all necessary requirements.");
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return false;
     }
     return true;
@@ -1296,7 +1429,10 @@ export default function Apply() {
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
       setError("⚠️ Please upload all required documents.");
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return false;
     }
     return true;
@@ -1309,7 +1445,10 @@ export default function Apply() {
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
       setError("⚠️ Required condition photos are missing.");
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return false;
     }
     return true;
@@ -1337,9 +1476,18 @@ export default function Apply() {
     const motorNorm = formData.motor_no.trim().toUpperCase();
     const chassisNorm = formData.chassis_no.trim().toUpperCase();
     const plateNorm = formData.plate_no.trim().toUpperCase();
+
     for (const check of [
-      { jsonKey: "motor_no", value: motorNorm, label: "Engine/Motor Number" },
-      { jsonKey: "chassis_no", value: chassisNorm, label: "Chassis Number" },
+      {
+        jsonKey: "motor_no",
+        value: motorNorm,
+        label: "Engine/Motor Number",
+      },
+      {
+        jsonKey: "chassis_no",
+        value: chassisNorm,
+        label: "Chassis Number",
+      },
       { jsonKey: "plate_no", value: plateNorm, label: "Plate Number" },
     ]) {
       if (!check.value) continue;
@@ -1380,17 +1528,26 @@ export default function Apply() {
 
     if (!step1Valid) {
       setStep(1);
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
     if (!step2Valid) {
       setStep(2);
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
     if (!step3Valid) {
       setStep(3);
-      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
     if (blockReason) return;
@@ -1486,33 +1643,40 @@ export default function Apply() {
       if (insertError) throw insertError;
 
       if (newApp) {
-        await notifyAdmin({
+        const notifPayload = {
           senderId: uid,
           title:
             appType === "registration"
-              ? "New Franchise Application"
-              : "Franchise Renewal Submitted",
+              ? "📋 New Franchise Application"
+              : "🔄 Franchise Renewal Submitted",
           message: `${formData.franchise_owner} submitted a ${appType} application. Franchise #: ${franchiseSlot}`,
           applicationId: newApp.id,
-          notificationType: "application_submitted",
-        });
+          notificationType:
+            appType === "registration" ? "new_application" : "renewal",
+        };
+
+        await Promise.all([
+          notifyAdmin(notifPayload),
+          notifyStaff(notifPayload),
+        ]);
       }
 
       setSubmittedControlNumber(controlNumber);
       setSubmittedFranchiseNumber(franchiseSlot);
       setSuccess(true);
-      // Refresh applications list after successful submit
+
+      // Realtime handles the INSERT, explicit re-fetch as safety net
       await fetchMyApplications();
     } catch (err) {
       setError("❌ " + err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const isRenewal = appType === "renewal";
   const isRegistration = appType === "registration";
 
-  // ── Build 3 fixed slots ───────────────────────────────────────────────────
   const MAX_SLOTS = 3;
   const slots = Array.from(
     { length: MAX_SLOTS },
@@ -1577,15 +1741,14 @@ export default function Apply() {
             )}
           </div>
 
-          {/* ── APPLICATION SLOTS TRACKER (shown when not filling form) ── */}
+          {/* ── APPLICATION SLOTS TRACKER ── */}
           {!appType && (
             <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">
-              {/* ── LEFT COLUMN: Application Status Tracker ── */}
+              {/* LEFT: Status Tracker */}
               <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
                 <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                   <h2 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
-                    <TrendingUp size={14} />
-                    Application Status Tracker
+                    <TrendingUp size={14} /> Application Status Tracker
                   </h2>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -1605,7 +1768,6 @@ export default function Apply() {
                   </div>
                 </div>
 
-                {/* Slot capacity info */}
                 <div className="px-6 py-4 flex items-center gap-4 border-b border-slate-100 bg-white">
                   <div className="flex gap-3 flex-wrap">
                     <div className="flex items-center gap-1.5">
@@ -1635,7 +1797,6 @@ export default function Apply() {
                   </div>
                 </div>
 
-                {/* The 3 slot cards */}
                 <div className="p-6 space-y-4">
                   {loadingApps ? (
                     <div className="flex items-center justify-center py-8 gap-3">
@@ -1647,7 +1808,7 @@ export default function Apply() {
                   ) : (
                     slots.map((app, i) => (
                       <ApplicationSlotCard
-                        key={i}
+                        key={app?.id ?? `empty-${i}`}
                         slotNumber={i + 1}
                         app={app}
                         defaultExpanded={false}
@@ -1657,24 +1818,23 @@ export default function Apply() {
                 </div>
               </div>
 
-              {/* ── RIGHT COLUMN: Start New Application + Requirements ── */}
+              {/* RIGHT: New Application + Requirements */}
               <div className="space-y-4">
-                {/* Application Type Selection */}
                 {canApply && !blockReason && !checkingStatus && (
                   <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
                     <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
                       <h2 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
-                        <FileText size={14} />
-                        Start New Application — Slot {usedSlots + 1}
+                        <FileText size={14} /> Start New Application — Slot{" "}
+                        {usedSlots + 1}
                       </h2>
                     </div>
                     <div className="p-4 grid grid-cols-2 gap-3">
                       <button
                         onClick={() => setAppType("registration")}
-                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-blue-500 hover:shadow-lg transition-all group bg-white"
+                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-blue-500 hover:shadow-lg transition-all group bg-blue-200 text-blue-600"
                       >
                         <div className="flex flex-col items-start gap-3">
-                          <div className="w-11 h-11 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                          <div className="w-11 h-11 bg-blue-300 rounded-xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform flex-shrink-0">
                             <FileText size={22} />
                           </div>
                           <div className="flex-1">
@@ -1694,10 +1854,10 @@ export default function Apply() {
 
                       <button
                         onClick={() => setAppType("renewal")}
-                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-emerald-500 hover:shadow-lg transition-all group bg-white"
+                        className="p-4 text-left border-2 border-slate-200 rounded-2xl hover:border-emerald-500 hover:shadow-lg transition-all group bg-green-100 text-emerald-600"
                       >
                         <div className="flex flex-col items-start gap-3">
-                          <div className="w-11 h-11 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                          <div className="w-11 h-11 bg-emerald-200 rounded-xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform flex-shrink-0">
                             <RefreshCw size={22} />
                           </div>
                           <div className="flex-1">
@@ -1718,7 +1878,6 @@ export default function Apply() {
                   </div>
                 )}
 
-                {/* Max slots reached message */}
                 {!canApply && (
                   <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex items-start gap-3">
                     <AlertCircle
@@ -1738,16 +1897,15 @@ export default function Apply() {
                   </div>
                 )}
 
-                {/* ── What to Prepare Card ── */}
+                {/* What to Prepare */}
                 <div className="bg-white rounded-2xl border border-blue-500 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 bg-slate-50 border-b border-slate-200">
                     <h2 className="text-xs font-bold uppercase tracking-widest text-blue-500 flex items-center gap-2">
-                      <CheckCircle size={13} className="text-slate-400" />
-                      What to Prepare
+                      <CheckCircle size={13} className="text-slate-400" /> What
+                      to Prepare
                     </h2>
                   </div>
                   <div className="p-5 space-y-4">
-                    {/* Documents */}
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
                         <FileText size={10} /> Required Documents
@@ -1772,10 +1930,7 @@ export default function Apply() {
                         ))}
                       </ul>
                     </div>
-
                     <div className="border-t border-slate-100" />
-
-                    {/* Photos */}
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
                         <Camera size={10} /> Required Photos
@@ -1798,10 +1953,7 @@ export default function Apply() {
                         ))}
                       </ul>
                     </div>
-
                     <div className="border-t border-slate-100" />
-
-                    {/* Office hours */}
                     <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1.5">
                         <Clock size={10} /> Office Hours
@@ -1862,7 +2014,6 @@ export default function Apply() {
               <StepBar step={step} total={TOTAL_STEPS} labels={STEP_LABELS} />
 
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                {/* Section Header */}
                 <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">
                     Section {step}:{" "}
@@ -1885,7 +2036,6 @@ export default function Apply() {
                   </div>
                 </div>
 
-                {/* Section Content */}
                 <div className="p-8 md:p-12 space-y-8">
                   {/* ── STEP 1 ── */}
                   {step === 1 && (
@@ -2230,7 +2380,7 @@ export default function Apply() {
                 </div>
               </div>
 
-              {/* ── HELP BOX ── */}
+              {/* Help box */}
               <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-8 rounded-2xl flex items-center justify-between shadow-lg">
                 <div>
                   <h4 className="text-white font-bold text-lg mb-1">

@@ -6,6 +6,7 @@ import { logActivity } from "../lib/Logger";
 import {
   Home,
   ClipboardList,
+  ClipboardCheck,
   Calendar,
   BarChart3,
   Bell,
@@ -34,6 +35,7 @@ const DOT_COLOR = {
   document: "bg-purple-500",
   inquiry: "bg-yellow-400",
   application: "bg-green-500",
+  staff_review: "bg-teal-500",
   other: "bg-gray-400",
 };
 
@@ -94,6 +96,14 @@ const NAV_ITEMS = [
     badge: false,
   },
   {
+    path: "/admin/reviewed-applications",
+    icon: ClipboardCheck,
+    label: "Reviewed by Staff",
+    color: "text-green-500",
+    badge: true,
+    badgeKey: "reviewed",
+  },
+  {
     path: "/admin/appointments",
     icon: Calendar,
     label: "Appointments",
@@ -113,6 +123,7 @@ const NAV_ITEMS = [
     label: "Notifications",
     color: "text-yellow-500",
     badge: true,
+    badgeKey: "notifications",
   },
 ];
 
@@ -322,6 +333,96 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
   );
 }
 
+// ─── Staff Review Modal ───────────────────────────────────────────────────────
+function StaffReviewModal({ notif, onClose, onNavigate }) {
+  if (!notif) return null;
+  const isPass = notif.message?.toLowerCase().includes("pass");
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-teal-500">
+        <div className="bg-teal-50 px-6 py-5 flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0 text-3xl">
+            📋
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-extrabold text-teal-800">
+              New Staff Review
+            </h2>
+            <p className="text-xs text-teal-600 mt-0.5">
+              Staff has submitted a recommendation
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+              Review Summary
+            </p>
+            <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              {notif.message}
+            </p>
+            {notif.profiles?.full_name && (
+              <p className="text-xs text-orange-500 mt-2 font-medium">
+                👤 Reviewed by: {notif.profiles.full_name}
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+              <p className="text-xs text-gray-500 mb-1">Received</p>
+              <p className="text-xs font-bold text-gray-800">
+                {new Date(notif.created_at).toLocaleDateString("en-PH", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+            </div>
+            <div
+              className={`rounded-xl p-3 border text-center ${isPass ? "bg-green-50 border-green-100" : "bg-red-50 border-red-100"}`}
+            >
+              <p className="text-xs text-gray-500 mb-1">Recommendation</p>
+              <span
+                className={`text-xs font-black ${isPass ? "text-green-700" : "text-red-700"}`}
+              >
+                {isPass ? "✅ PASS" : "❌ REJECT"}
+              </span>
+            </div>
+          </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-xs text-orange-800 space-y-1">
+            <p className="font-bold mb-1">⚡ Admin Action Required:</p>
+            <p>• Review the full application and staff remarks</p>
+            <p>• Make the final approval or rejection decision</p>
+            <p>• The applicant will be notified of your decision</p>
+          </div>
+        </div>
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={onNavigate}
+            className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+          >
+            View Reviewed Applications →
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            Later
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Logout Confirmation Modal ────────────────────────────────────────────────
 function LogoutModal({ onConfirm, onCancel }) {
   return (
@@ -504,10 +605,12 @@ export default function AdminLayout({ children }) {
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [reviewedCount, setReviewedCount] = useState(0);
   const [bellNotifs, setBellNotifs] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [appointmentNotif, setAppointmentNotif] = useState(null);
   const [applicationNotif, setApplicationNotif] = useState(null);
+  const [staffReviewNotif, setStaffReviewNotif] = useState(null);
   const [adminProfile, setAdminProfile] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
 
@@ -684,6 +787,34 @@ export default function AdminLayout({ children }) {
     };
   }, [currentUserId]);
 
+  // ── Load + subscribe to reviewed-by-staff count ─────────────────────────
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    async function loadReviewedCount() {
+      const { count } = await supabase
+        .from("applications")
+        .select("id", { count: "exact", head: true })
+        .not("staff_recommendation", "is", null)
+        .eq("admin_processed", false);
+
+      setReviewedCount(count || 0);
+    }
+
+    loadReviewedCount();
+
+    const channel = supabase
+      .channel(`reviewed-count-${currentUserId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "applications" },
+        () => loadReviewedCount(),
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [currentUserId]);
+
   // ── Close bell dropdown on outside click ───────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -712,7 +843,7 @@ export default function AdminLayout({ children }) {
     setUnreadCount((prev) => Math.max(prev - 1, 0));
     setShowDropdown(false);
 
-    // Route based on category
+    // Route based on category / notification_type
     const cat = getCategory(notif);
     if (cat === "appointment") {
       setAppointmentNotif(notif);
@@ -720,6 +851,10 @@ export default function AdminLayout({ children }) {
     }
     if (["new_application", "renewal", "application"].includes(cat)) {
       setApplicationNotif(notif);
+      return;
+    }
+    if (cat === "staff_review" || notif.notification_type === "staff_review") {
+      setStaffReviewNotif(notif);
       return;
     }
 
@@ -788,6 +923,16 @@ export default function AdminLayout({ children }) {
           }}
         />
       )}
+      {staffReviewNotif && (
+        <StaffReviewModal
+          notif={staffReviewNotif}
+          onClose={() => setStaffReviewNotif(null)}
+          onNavigate={() => {
+            setStaffReviewNotif(null);
+            navigate("/admin/reviewed-applications");
+          }}
+        />
+      )}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={handleLogout}
@@ -838,53 +983,60 @@ export default function AdminLayout({ children }) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-          {/* Top-level nav items */}
-          {NAV_ITEMS.map((item) => {
-            const ItemIcon = item.icon;
-            const isActive = location.pathname === item.path;
-            return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                title={collapsed ? item.label : ""}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
-                  isActive
-                    ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                }`}
-              >
-                <ItemIcon
-                  size={17}
-                  className={`flex-shrink-0 transition-colors ${
+          {/* Badge count map: keyed by badgeKey on each nav item */}
+          {(() => {
+            const badgeCounts = {
+              notifications: unreadCount,
+              reviewed: reviewedCount,
+            };
+            return NAV_ITEMS.map((item) => {
+              const ItemIcon = item.icon;
+              const isActive = location.pathname === item.path;
+              const badgeVal = item.badge ? badgeCounts[item.badgeKey] || 0 : 0;
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  title={collapsed ? item.label : ""}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
                     isActive
-                      ? "text-white"
-                      : `${item.color} group-hover:opacity-80`
+                      ? "bg-gray-900 text-white shadow-sm"
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                   }`}
-                />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left text-[13px]">
-                      {item.label}
-                    </span>
-                    {item.badge && unreadCount > 0 && (
-                      <span
-                        className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${
-                          isActive
-                            ? "bg-white text-gray-900"
-                            : "bg-gray-900 text-white"
-                        }`}
-                      >
-                        {unreadCount > 99 ? "99+" : unreadCount}
+                >
+                  <ItemIcon
+                    size={17}
+                    className={`flex-shrink-0 transition-colors ${
+                      isActive
+                        ? "text-white"
+                        : `${item.color} group-hover:opacity-80`
+                    }`}
+                  />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left text-[13px]">
+                        {item.label}
                       </span>
-                    )}
-                  </>
-                )}
-                {collapsed && item.badge && unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
-                )}
-              </button>
-            );
-          })}
+                      {item.badge && badgeVal > 0 && (
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${
+                            isActive
+                              ? "bg-white text-gray-900"
+                              : "bg-gray-900 text-white"
+                          }`}
+                        >
+                          {badgeVal > 99 ? "99+" : badgeVal}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {collapsed && item.badge && badgeVal > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
+                  )}
+                </button>
+              );
+            });
+          })()}
 
           {/* Divider before Configuration */}
           <div className="pt-2 pb-1">

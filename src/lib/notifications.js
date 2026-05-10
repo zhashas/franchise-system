@@ -1,4 +1,3 @@
-
 /**
  * notifications.js
  * ─────────────────────────────────────────────────────────────────────────────
@@ -20,15 +19,15 @@
  *   )
  */
 
-import { supabase } from "./supabaseClient"
+import { supabase } from "./supabaseClient";
 
 // ─── Internal insert with graceful error handling ─────────────────────────────
 async function _insert(payload) {
-  const { error } = await supabase.from("notifications").insert(payload)
+  const { error } = await supabase.from("notifications").insert(payload);
   if (error) {
-    console.error("[notifications] insert failed:", error.message, payload)
+    console.error("[notifications] insert failed:", error.message, payload);
   }
-  return !error
+  return !error;
 }
 
 // ─── notifyAdmin ──────────────────────────────────────────────────────────────
@@ -51,16 +50,16 @@ export async function notifyAdmin({
   notificationType = "application_submitted",
 }) {
   return _insert({
-    recipient_id:      null,          // broadcasted; all admins/staff query by recipient_type
-    recipient_type:    "admin",
-    sender_id:         senderId,
-    sender_type:       "applicant",
+    recipient_id: null, // broadcasted; all admins/staff query by recipient_type
+    recipient_type: "admin",
+    sender_id: senderId,
+    sender_type: "applicant",
     notification_type: notificationType,
     title,
     message,
-    application_id:    applicationId,
-    is_read:           false,
-  })
+    application_id: applicationId,
+    is_read: false,
+  });
 }
 
 // ─── notifyApplicant ──────────────────────────────────────────────────────────
@@ -85,16 +84,16 @@ export async function notifyApplicant({
   senderType = "admin",
 }) {
   return _insert({
-    recipient_id:      recipientId,
-    recipient_type:    "applicant",
-    sender_id:         null,
-    sender_type:       senderType,
+    recipient_id: recipientId,
+    recipient_type: "applicant",
+    sender_id: null,
+    sender_type: senderType,
     notification_type: notificationType,
     title,
     message,
-    application_id:    applicationId,
-    is_read:           false,
-  })
+    application_id: applicationId,
+    is_read: false,
+  });
 }
 
 // ─── notifyStaff ─────────────────────────────────────────────────────────────
@@ -115,14 +114,14 @@ export async function notifyStaff({
   notificationType = "system_alert",
 }) {
   return _insert({
-    recipient_id:      null,
-    recipient_type:    "staff",
-    sender_id:         null,
-    sender_type:       "system",
+    recipient_id: null,
+    recipient_type: "staff",
+    sender_id: null,
+    sender_type: "system",
     notification_type: notificationType,
     title,
     message,
-    application_id:    applicationId,
-    is_read:           false,
-  })
+    application_id: applicationId,
+    is_read: false,
+  });
 }

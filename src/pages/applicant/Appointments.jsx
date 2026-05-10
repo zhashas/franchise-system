@@ -1,5 +1,5 @@
 // src/pages/applicant/ApplicantAppointments.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import ApplicantLayout from "../../components/ApplicantLayout";
 import {
@@ -15,30 +15,74 @@ import {
 
 const cn = (...classes) => classes.filter(Boolean).join(" ");
 
-// ── Utility Functions ────────────────────────────────────────────────────
-const formatDate = (dateString) => {
-  const date = new Date(dateString);
-  const month = date.toLocaleString("en-US", { month: "short" });
-  const day = String(date.getDate()).padStart(2, "0");
-  return { month, day };
+// ── Date helpers (no timezone shift) ─────────────────────────────────────────
+const parseLocalDate = (str) => {
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
 };
 
-const formatFullDate = (dateString) => {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-PH", {
+const formatDate = (str) => {
+  const d = parseLocalDate(str);
+  return {
+    month: d.toLocaleString("en-US", { month: "short" }),
+    day: String(d.getDate()).padStart(2, "0"),
+  };
+};
+
+const formatFullDate = (str) =>
+  parseLocalDate(str).toLocaleDateString("en-PH", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
   });
-};
 
-const formatDateShort = (dateString) => {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-PH", {
+const formatDateShort = (str) =>
+  parseLocalDate(str).toLocaleDateString("en-PH", {
     month: "short",
     day: "numeric",
   });
+
+// ── Status config ─────────────────────────────────────────────────────────────
+const getStatusConfig = (status) => {
+  switch (status) {
+    case "confirmed":
+      return {
+        label: "Confirmed",
+        icon: CheckCircle2,
+        color: "text-blue-700",
+        bg: "bg-blue-100",
+        headerGradient: "from-blue-600 to-indigo-800",
+        indicatorColor: "bg-blue-500",
+      };
+    case "completed":
+      return {
+        label: "Completed",
+        icon: CheckCircle2,
+        color: "text-emerald-700",
+        bg: "bg-emerald-100",
+        headerGradient: "from-emerald-600 to-emerald-800",
+        indicatorColor: "bg-emerald-500",
+      };
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        icon: XCircle,
+        color: "text-rose-700",
+        bg: "bg-rose-100",
+        headerGradient: "from-rose-600 to-rose-800",
+        indicatorColor: "bg-rose-500",
+      };
+    default:
+      return {
+        label: "Pending",
+        icon: AlertCircle,
+        color: "text-amber-700",
+        bg: "bg-yellow-100",
+        headerGradient: "from-amber-600 to-amber-800",
+        indicatorColor: "bg-amber-500",
+      };
+  }
 };
 
 export default function ApplicantAppointments() {
@@ -46,75 +90,108 @@ export default function ApplicantAppointments() {
   const [loading, setLoading] = useState(true);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
 
+  // ── Fetch applicant's own appointments ────────────────────────────────────
+  const fetchAppointments = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .select(
+          `
+          *,
+          applications!appointments_application_id_fkey (type, status)
+        `,
+        )
+        .eq("applicant_id", user.id)
+        .order("scheduled_date", { ascending: true });
+
+      if (error) throw error;
+      setAppointments(data || []);
+    } catch (err) {
+      console.error("[ApplicantAppointments] fetch error:", err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchAppointments = async () => {
+    fetchAppointments();
+  }, [fetchAppointments]);
+
+  // ── Realtime: watch own appointments for updates ──────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const setup = async () => {
       try {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (!user) {
-          setLoading(false);
-          return;
-        }
+        if (!user || !isMounted) return;
 
-        const { data } = await supabase
-          .from("appointments")
-          .select("*, applications(type)")
-          .eq("applicant_id", user.id)
-          .order("scheduled_date", { ascending: true });
+        const channelName = `applicant-appointments-${user.id}-${Date.now()}`;
 
-        setAppointments(data || []);
-      } catch (error) {
-        console.error("Error fetching appointments:", error);
-      } finally {
-        setLoading(false);
+        channel = supabase
+          .channel(channelName)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "appointments",
+              filter: `applicant_id=eq.${user.id}`,
+            },
+            (payload) => {
+              if (!isMounted) return;
+              if (payload.eventType === "INSERT") {
+                fetchAppointments();
+              } else if (payload.eventType === "UPDATE") {
+                setAppointments((prev) =>
+                  prev.map((a) =>
+                    a.id === payload.new.id ? { ...a, ...payload.new } : a,
+                  ),
+                );
+                // Keep detail panel in sync
+                setSelectedAppointment((prev) =>
+                  prev?.id === payload.new.id
+                    ? { ...prev, ...payload.new }
+                    : prev,
+                );
+              } else if (payload.eventType === "DELETE") {
+                setAppointments((prev) =>
+                  prev.filter((a) => a.id !== payload.old.id),
+                );
+                setSelectedAppointment((prev) =>
+                  prev?.id === payload.old.id ? null : prev,
+                );
+              }
+            },
+          )
+          .subscribe((status) => {
+            if (status === "CHANNEL_ERROR")
+              console.error("[ApplicantAppointments] Realtime error");
+          });
+      } catch (err) {
+        console.error("[ApplicantAppointments] Realtime setup error:", err);
       }
     };
 
-    fetchAppointments();
-  }, []);
+    setup();
+    return () => {
+      isMounted = false;
+      if (channel) supabase.removeChannel(channel).catch(console.error);
+    };
+  }, [fetchAppointments]);
 
-  const getStatusConfig = (status) => {
-    switch (status) {
-      case "confirmed":
-        return {
-          label: "Confirmed",
-          icon: CheckCircle2,
-          color: "text-blue-700",
-          bg: "bg-blue-100",
-          headerGradient: "from-blue-600 to-indigo-800",
-          indicatorColor: "bg-blue-500",
-        };
-      case "completed":
-        return {
-          label: "Completed",
-          icon: CheckCircle2,
-          color: "text-emerald-700",
-          bg: "bg-emerald-100",
-          headerGradient: "from-emerald-600 to-emerald-800",
-          indicatorColor: "bg-emerald-500",
-        };
-      case "cancelled":
-        return {
-          label: "Cancelled",
-          icon: XCircle,
-          color: "text-rose-700",
-          bg: "bg-rose-100",
-          headerGradient: "from-rose-600 to-rose-800",
-          indicatorColor: "bg-rose-500",
-        };
-      default:
-        return {
-          label: "Pending",
-          icon: AlertCircle,
-          color: "text-amber-700",
-          bg: "bg-yellow-100",
-          headerGradient: "from-amber-600 to-amber-800",
-          indicatorColor: "bg-amber-500",
-        };
-    }
-  };
-
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = [
     {
       label: "Active Sessions",
@@ -125,15 +202,15 @@ export default function ApplicantAppointments() {
     {
       label: "Completed",
       val: appointments.filter((a) => a.status === "completed").length,
-      detail: "✓ History updated",
+      detail: "✓ completed sessions",
       color: "text-emerald-600",
     },
     {
-      label: "Rescheduled",
+      label: "Cancelled",
       val: appointments.filter((a) => a.status === "cancelled").length,
       detail:
         appointments.filter((a) => a.status === "cancelled").length > 0
-          ? "⚠️ Action needed"
+          ? "⚠️ Cancelled sessions"
           : "— No records",
       color:
         appointments.filter((a) => a.status === "cancelled").length > 0
@@ -142,6 +219,7 @@ export default function ApplicantAppointments() {
     },
   ];
 
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <ApplicantLayout>
       <div className="space-y-8 animate-in max-w-8xl mx-auto">
@@ -159,9 +237,9 @@ export default function ApplicantAppointments() {
 
         {/* ── MAIN GRID ── */}
         <div className="grid grid-cols-12 gap-8">
-          {/* ── LEFT SECTION ── */}
+          {/* ── LEFT ── */}
           <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-            {/* ── STATS ── */}
+            {/* Stats */}
             <div className="grid grid-cols-3 gap-4">
               {stats.map((stat, i) => (
                 <div
@@ -186,7 +264,7 @@ export default function ApplicantAppointments() {
               ))}
             </div>
 
-            {/* ── APPOINTMENTS LIST ── */}
+            {/* Appointments list */}
             <div className="bg-white rounded-2xl border border-green-500 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
               {/* Header */}
               <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
@@ -194,12 +272,9 @@ export default function ApplicantAppointments() {
                   Schedule Pipeline
                 </h2>
                 <div className="flex gap-2">
-                  <button className="p-1 px-3 bg-white border border-slate-200 rounded text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition">
-                    Priority
-                  </button>
-                  <button className="p-1 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-600 transition">
-                    All History
-                  </button>
+                  <span className="p-1 px-3 bg-white border border-slate-200 rounded text-[10px] font-bold text-slate-400">
+                    {appointments.length} total
+                  </span>
                 </div>
               </div>
 
@@ -223,7 +298,7 @@ export default function ApplicantAppointments() {
                     <p className="font-semibold text-slate-600 text-sm">
                       No appointments scheduled yet
                     </p>
-                    <p className="text-xs text-slate-400 mt-2">
+                    <p className="text-xs text-slate-400 mt-2 max-w-xs mx-auto">
                       The admin will schedule an appointment once your
                       application is under review.
                     </p>
@@ -247,6 +322,7 @@ export default function ApplicantAppointments() {
                             : "hover:bg-slate-50",
                         )}
                       >
+                        {/* Date badge */}
                         <div
                           className={cn(
                             "w-12 h-12 rounded-lg flex flex-col items-center justify-center shrink-0 transition-colors",
@@ -268,8 +344,14 @@ export default function ApplicantAppointments() {
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-start gap-2">
                             <h3 className="text-sm font-bold text-slate-800 truncate">
-                              {apt.purpose_description ||
-                                `Franchise ${apt.applications?.type || "Application"}`}
+                              Franchise{" "}
+                              {apt.applications?.type
+                                ? apt.applications.type
+                                    .charAt(0)
+                                    .toUpperCase() +
+                                  apt.applications.type.slice(1)
+                                : "Application"}{" "}
+                              Appointment
                             </h3>
                             <span
                               className={cn(
@@ -281,15 +363,19 @@ export default function ApplicantAppointments() {
                               {cfg.label}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 mt-1">
-                            <Clock size={12} className="inline mr-1" />
-                            {apt.scheduled_time}
-                            {apt.office_location && (
-                              <>
-                                {" "}
-                                • <MapPin size={12} className="inline mr-1" />
-                                {apt.office_location}
-                              </>
+                          <p className="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} />
+                              {apt.scheduled_time}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar size={12} />
+                              {formatDateShort(apt.scheduled_date)}
+                            </span>
+                            {apt.notes && (
+                              <span className="text-slate-400 truncate max-w-[140px]">
+                                📝 {apt.notes}
+                              </span>
                             )}
                           </p>
                         </div>
@@ -297,7 +383,7 @@ export default function ApplicantAppointments() {
                         <ChevronRight
                           size={18}
                           className={cn(
-                            "transition-colors",
+                            "transition-colors flex-shrink-0",
                             isActive
                               ? "text-blue-600"
                               : "text-slate-200 group-hover:text-slate-400",
@@ -317,10 +403,10 @@ export default function ApplicantAppointments() {
             </div>
           </div>
 
-          {/* ── RIGHT SECTION - DETAIL CARD ── */}
-          <div className="col-span-12 lg:col-span-4 flex flex-col max-h-screen lg:sticky lg:top-8">
+          {/* ── RIGHT: Detail Card ── */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col lg:sticky lg:top-8">
             {!selectedAppointment ? (
-              <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-200 shadow-sm">
+              <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-200 shadow-sm min-h-[300px]">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-slate-300 mb-4 shadow-sm">
                   <Calendar size={32} />
                 </div>
@@ -334,10 +420,10 @@ export default function ApplicantAppointments() {
               </div>
             ) : (
               <div className="flex-1 bg-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white ring-1 ring-white/10">
-                {/* Header */}
+                {/* Gradient header */}
                 <div
                   className={cn(
-                    "relative h-32 p-6 flex items-end transition-colors bg-gradient-to-br",
+                    "relative h-32 p-6 flex items-end bg-gradient-to-br",
                     getStatusConfig(selectedAppointment.status).headerGradient,
                   )}
                 >
@@ -352,15 +438,21 @@ export default function ApplicantAppointments() {
                       Session Insight
                     </p>
                     <h2 className="text-xl font-bold leading-tight mt-1">
-                      {selectedAppointment.purpose_description ||
-                        `Franchise ${selectedAppointment.applications?.type || "Application"}`}
+                      Franchise{" "}
+                      {selectedAppointment.applications?.type
+                        ? selectedAppointment.applications.type
+                            .charAt(0)
+                            .toUpperCase() +
+                          selectedAppointment.applications.type.slice(1)
+                        : "Application"}{" "}
+                      Appointment
                     </h2>
                   </div>
                 </div>
 
                 {/* Body */}
                 <div className="flex-1 p-6 space-y-6 overflow-y-auto">
-                  {/* Instructions */}
+                  {/* Instructions / Notes */}
                   <section>
                     <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest mb-2">
                       Instructions
@@ -368,28 +460,33 @@ export default function ApplicantAppointments() {
                     <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                       <p className="text-sm leading-relaxed text-slate-300 italic">
                         "
-                        {selectedAppointment.message ||
-                          "No specific instructions provided. Please contact the office for details."}
+                        {selectedAppointment.notes ||
+                          "No specific instructions provided. Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."}
                         "
                       </p>
                     </div>
                   </section>
 
-                  {/* Tracking */}
+                  {/* Status tracking */}
                   <section className="space-y-4">
                     <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest">
                       Status Tracking
                     </h4>
                     <div className="space-y-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
                         <div className="flex-1 flex justify-between">
                           <span className="text-xs font-medium">
                             Schedule Proposed
                           </span>
                           <span className="text-[10px] text-slate-500">
                             {selectedAppointment.created_at
-                              ? formatDateShort(selectedAppointment.created_at)
+                              ? new Date(
+                                  selectedAppointment.created_at,
+                                ).toLocaleDateString("en-PH", {
+                                  month: "short",
+                                  day: "numeric",
+                                })
                               : "—"}
                           </span>
                         </div>
@@ -397,10 +494,9 @@ export default function ApplicantAppointments() {
                       <div className="flex items-center gap-3">
                         <div
                           className={cn(
-                            "w-2 h-2 rounded-full",
-                            selectedAppointment.status === "completed"
-                              ? "bg-emerald-500"
-                              : "bg-blue-500",
+                            "w-2 h-2 rounded-full flex-shrink-0",
+                            getStatusConfig(selectedAppointment.status)
+                              .indicatorColor,
                           )}
                         />
                         <div className="flex-1 flex justify-between">
@@ -415,8 +511,8 @@ export default function ApplicantAppointments() {
                     </div>
                   </section>
 
-                  {/* Details Grid */}
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  {/* Details grid */}
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
                       <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
                         Time
@@ -427,21 +523,31 @@ export default function ApplicantAppointments() {
                     </div>
                     <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
                       <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
-                        Location
+                        Type
                       </p>
-                      <p className="text-sm font-bold">
-                        {selectedAppointment.office_location || "TBD"}
+                      <p className="text-sm font-bold capitalize">
+                        {selectedAppointment.applications?.type || "—"}
                       </p>
                     </div>
                   </div>
 
-                  {/* Date Info */}
+                  {/* Scheduled date */}
                   <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
                     <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
                       Scheduled Date
                     </p>
                     <p className="text-sm font-bold">
                       {formatFullDate(selectedAppointment.scheduled_date)}
+                    </p>
+                  </div>
+
+                  {/* Location */}
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                    <p className="text-[8px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
+                      <MapPin size={8} /> Location
+                    </p>
+                    <p className="text-sm font-bold">
+                      Municipal Hall, San Jose, Occidental Mindoro
                     </p>
                   </div>
                 </div>

@@ -2,71 +2,85 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
-import { X, Clock, MapPin, CheckCircle, Bell, InboxIcon, Zap, Archive, Database } from "lucide-react";
+import {
+  X,
+  Clock,
+  MapPin,
+  CheckCircle,
+  Bell,
+  InboxIcon,
+  Zap,
+  Archive,
+  Database,
+} from "lucide-react";
 import { getCategory } from "../../utils/notificationUtils";
 
 // ─── Broadcast unread count + top-10 rows to AdminLayout bell ────────────────
 const broadcastUnreadCount = (notifications) => {
   const unread = notifications.filter((n) => !n.is_read);
   window.dispatchEvent(
-    new CustomEvent("adminUnreadCount", { detail: { count: unread.length } })
+    new CustomEvent("adminUnreadCount", { detail: { count: unread.length } }),
   );
   window.dispatchEvent(
-    new CustomEvent("admin_bell_rows", { detail: unread.slice(0, 10) })
+    new CustomEvent("admin_bell_rows", { detail: unread.slice(0, 10) }),
   );
 };
 
 // ─── Category config ──────────────────────────────────────────────────────────
 const DOT_COLORS = {
-  mtop_reminder:    "bg-blue-500",
-  expiry_30:        "bg-orange-500",
-  expiry_15:        "bg-red-500",
-  application:      "bg-green-500",
-  new_application:  "bg-green-500",
-  renewal:          "bg-orange-500",
-  appointment:      "bg-purple-500",
-  document:         "bg-purple-500",
-  inquiry:          "bg-yellow-400",
-  other:            "bg-gray-400",
+  mtop_reminder: "bg-blue-500",
+  expiry_30: "bg-orange-500",
+  expiry_15: "bg-red-500",
+  application: "bg-green-500",
+  new_application: "bg-green-500",
+  renewal: "bg-orange-500",
+  appointment: "bg-purple-500",
+  document: "bg-purple-500",
+  inquiry: "bg-yellow-400",
+  staff_review: "bg-teal-500",
+  other: "bg-gray-400",
 };
 
 const CAT_EMOJI = {
   new_application: "📄",
-  renewal:         "🔄",
-  appointment:     "📅",
-  mtop_reminder:   "📋",
-  expiry_15:       "🔴",
-  expiry_30:       "🟡",
-  document:        "📎",
-  application:     "📎",
-  inquiry:         "❓",
-  other:           "🔔",
+  renewal: "🔄",
+  appointment: "📅",
+  mtop_reminder: "📋",
+  expiry_15: "🔴",
+  expiry_30: "🟡",
+  document: "📎",
+  application: "📎",
+  inquiry: "❓",
+  staff_review: "📋",
+  other: "🔔",
 };
 
 const SIGNAL_TYPE_LABEL = {
   new_application: "NEW APPLICATION",
-  renewal:         "RENEWAL",
-  appointment:     "APPOINTMENT",
-  mtop_reminder:   "MTOP REMINDER",
-  expiry_15:       "EXPIRY URGENT",
-  expiry_30:       "EXPIRY WARNING",
-  document:        "DOCUMENT",
-  application:     "APPLICATION",
-  inquiry:         "INQUIRY",
-  other:           "SYSTEM",
+  renewal: "RENEWAL",
+  appointment: "APPOINTMENT",
+  mtop_reminder: "MTOP REMINDER",
+  expiry_15: "EXPIRY URGENT",
+  expiry_30: "EXPIRY WARNING",
+  document: "DOCUMENT",
+  application: "APPLICATION",
+  inquiry: "INQUIRY",
+  staff_review: "STAFF REVIEW",
+  other: "SYSTEM",
 };
 
 const SIGNAL_ACCENT = {
   new_application: "border-l-green-500",
-  renewal:         "border-l-orange-500",
-  appointment:     "border-l-purple-500",
-  mtop_reminder:   "border-l-blue-500",
-  expiry_15:       "border-l-red-500",
-  expiry_30:       "border-l-yellow-500",
-  document:        "border-l-purple-500",
-  application:     "border-l-green-500",
-  inquiry:         "border-l-yellow-400",
-  other:           "border-l-gray-400",
+  renewal: "border-l-orange-500",
+  appointment: "border-l-purple-500",
+  mtop_reminder: "border-l-blue-500",
+  expiry_15: "border-l-red-500",
+  expiry_30: "border-l-yellow-500",
+  document: "border-l-purple-500",
+  application: "border-l-green-500",
+  inquiry: "border-l-yellow-400",
+  staff_review: "border-l-teal-500",
+  other: "border-l-gray-400",
 };
 
 const formatDate = (date) =>
@@ -84,8 +98,8 @@ const formatDate = (date) =>
 
 const formatTimeAgo = (date) => {
   const diff = Math.floor((Date.now() - new Date(date)) / 60000);
-  if (diff < 1)    return "Just now";
-  if (diff < 60)   return `${diff}m ago`;
+  if (diff < 1) return "Just now";
+  if (diff < 60) return `${diff}m ago`;
   if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
   return `${Math.floor(diff / 1440)}d ago`;
 };
@@ -95,27 +109,50 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   const fmt = (d, type) =>
     type === "date"
-      ? new Date(d).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })
-      : new Date(d).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
+      ? new Date(d).toLocaleDateString("en-PH", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })
+      : new Date(d).toLocaleTimeString("en-PH", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-blue-500">
         <div className="bg-blue-50 px-6 py-5 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-3xl">📅</div>
+          <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-3xl">
+            📅
+          </div>
           <div className="flex-1">
-            <h2 className="text-base font-extrabold text-blue-800">Appointment Request</h2>
+            <h2 className="text-base font-extrabold text-blue-800">
+              Appointment Request
+            </h2>
             <p className="text-xs text-blue-500 mt-0.5">From: Applicant</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700"
+          >
+            <X size={20} />
+          </button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Message</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+              Message
+            </p>
             <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
-            <p className="text-xs text-gray-600 mt-1 leading-relaxed">{notif.message}</p>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              {notif.message}
+            </p>
             {notif.profiles?.full_name && (
-              <p className="text-xs text-orange-500 mt-2 font-medium">👤 From: {notif.profiles.full_name}</p>
+              <p className="text-xs text-orange-500 mt-2 font-medium">
+                👤 From: {notif.profiles.full_name}
+              </p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -124,20 +161,27 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
                 <Clock size={12} className="text-blue-500" />
                 <p className="text-xs font-semibold text-blue-600">Received</p>
               </div>
-              <p className="text-xs font-bold text-blue-800">{fmt(notif.created_at, "date")}</p>
-              <p className="text-xs text-blue-600">{fmt(notif.created_at, "time")}</p>
+              <p className="text-xs font-bold text-blue-800">
+                {fmt(notif.created_at, "date")}
+              </p>
+              <p className="text-xs text-blue-600">
+                {fmt(notif.created_at, "time")}
+              </p>
             </div>
             <div className="bg-yellow-50 rounded-xl p-3 border border-yellow-100">
               <div className="flex items-center gap-1.5 mb-1">
                 <CheckCircle size={12} className="text-yellow-500" />
                 <p className="text-xs font-semibold text-yellow-700">Action</p>
               </div>
-              <span className="text-xs font-bold text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded-full">Needs Scheduling</span>
+              <span className="text-xs font-bold text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded-full">
+                Needs Scheduling
+              </span>
             </div>
           </div>
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-800 space-y-1">
             <div className="flex items-center gap-1.5 font-bold mb-1">
-              <MapPin size={12} /><span>Admin Action Required:</span>
+              <MapPin size={12} />
+              <span>Admin Action Required:</span>
             </div>
             <p>• Go to Appointments to set a date and time</p>
             <p>• Notify the applicant once the schedule is confirmed</p>
@@ -145,8 +189,18 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
           </div>
         </div>
         <div className="px-6 pb-5 flex gap-3">
-          <button onClick={onNavigate} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow">Go to Appointments →</button>
-          <button onClick={onClose}    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Dismiss</button>
+          <button
+            onClick={onNavigate}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+          >
+            Go to Appointments →
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            Dismiss
+          </button>
         </div>
       </div>
     </div>
@@ -168,29 +222,48 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
             <h2 className="text-base font-extrabold text-orange-800">
               {isRenewal ? "Renewal Request" : "New Application Received"}
             </h2>
-            <p className="text-xs text-orange-500 mt-0.5">Awaiting your review</p>
+            <p className="text-xs text-orange-500 mt-0.5">
+              Awaiting your review
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700"
+          >
+            <X size={20} />
+          </button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Details</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+              Details
+            </p>
             <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
-            <p className="text-xs text-gray-600 mt-1 leading-relaxed">{notif.message}</p>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              {notif.message}
+            </p>
             {notif.profiles?.full_name && (
-              <p className="text-xs text-orange-500 mt-2 font-medium">👤 Applicant: {notif.profiles.full_name}</p>
+              <p className="text-xs text-orange-500 mt-2 font-medium">
+                👤 Applicant: {notif.profiles.full_name}
+              </p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
               <p className="text-xs text-gray-500 mb-1">Received</p>
               <p className="text-xs font-bold text-gray-800">
-                {new Date(notif.created_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                {new Date(notif.created_at).toLocaleDateString("en-PH", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
               </p>
             </div>
             <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center">
               <p className="text-xs text-gray-500 mb-1">Status</p>
-              <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">Pending Review</span>
+              <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">
+                Pending Review
+              </span>
             </div>
           </div>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 space-y-1">
@@ -201,8 +274,18 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
           </div>
         </div>
         <div className="px-6 pb-5 flex gap-3">
-          <button onClick={onNavigate} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm transition shadow">View Application →</button>
-          <button onClick={onClose}    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition">Later</button>
+          <button
+            onClick={onNavigate}
+            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+          >
+            View Application →
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            Later
+          </button>
         </div>
       </div>
     </div>
@@ -211,11 +294,12 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function AdminNotifications() {
-  const [notifications,    setNotifications]    = useState([]);
-  const [loading,          setLoading]          = useState(true);
-  const [filter,           setFilter]           = useState("all"); // all | unread | read (archived)
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all"); // all | unread | read (archived)
   const [appointmentNotif, setAppointmentNotif] = useState(null);
   const [applicationNotif, setApplicationNotif] = useState(null);
+  const [staffReviewNotif, setStaffReviewNotif] = useState(null);
   const seenIds = useRef(new Set());
   const navigate = useNavigate();
 
@@ -241,7 +325,9 @@ export default function AdminNotifications() {
     }
   }, []);
 
-  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   // ── Realtime INSERT ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -249,7 +335,9 @@ export default function AdminNotifications() {
     let cancelled = false;
 
     const setup = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user || cancelled) return;
 
       channel = supabase
@@ -268,7 +356,10 @@ export default function AdminNotifications() {
             let enriched = { ...row, profiles: null };
             if (row.sender_id) {
               const { data: p } = await supabase
-                .from("profiles").select("full_name, email").eq("id", row.sender_id).single();
+                .from("profiles")
+                .select("full_name, email")
+                .eq("id", row.sender_id)
+                .single();
               enriched.profiles = p || null;
             }
 
@@ -277,28 +368,36 @@ export default function AdminNotifications() {
               broadcastUnreadCount(updated);
               return updated;
             });
-          }
+          },
         )
         .subscribe();
     };
 
     setup();
-    return () => { cancelled = true; if (channel) supabase.removeChannel(channel); };
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Mark read helpers ─────────────────────────────────────────────────────────
   const markRead = async (id) => {
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
     setNotifications((prev) => {
-      const updated = prev.map((n) => n.id === id ? { ...n, is_read: true } : n);
+      const updated = prev.map((n) =>
+        n.id === id ? { ...n, is_read: true } : n,
+      );
       broadcastUnreadCount(updated);
       return updated;
     });
   };
 
   const markAllRead = async () => {
-    await supabase.from("notifications").update({ is_read: true })
-      .eq("recipient_type", "admin").eq("is_read", false);
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("recipient_type", "admin")
+      .eq("is_read", false);
     setNotifications((prev) => {
       const updated = prev.map((n) => ({ ...n, is_read: true }));
       broadcastUnreadCount(updated);
@@ -310,38 +409,48 @@ export default function AdminNotifications() {
   const handleClick = async (n) => {
     if (!n.is_read) await markRead(n.id);
     const cat = getCategory(n);
-    if (cat === "appointment") { setAppointmentNotif(n); return; }
-    if (["new_application", "renewal", "application"].includes(cat)) { setApplicationNotif(n); return; }
+    if (cat === "appointment") {
+      setAppointmentNotif(n);
+      return;
+    }
+    if (["new_application", "renewal", "application"].includes(cat)) {
+      setApplicationNotif(n);
+      return;
+    }
+    if (cat === "staff_review" || n.notification_type === "staff_review") {
+      setStaffReviewNotif(n);
+      return;
+    }
     if (n.application_id) navigate(`/admin/applications/${n.application_id}`);
     else navigate("/admin/applications");
   };
 
   // ── Derived state ─────────────────────────────────────────────────────────────
-  const unreadCount  = notifications.filter((n) => !n.is_read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
   const archivedCount = notifications.filter((n) => n.is_read).length;
 
   const filtered = notifications.filter((n) =>
-    filter === "unread" ? !n.is_read : filter === "read" ? n.is_read : true
+    filter === "unread" ? !n.is_read : filter === "read" ? n.is_read : true,
   );
 
   // ── Dispatch filter tabs ──────────────────────────────────────────────────────
   const dispatchFilters = [
     {
-      key:   "all",
+      key: "all",
       label: "ALL INCOMING",
-      Icon:  InboxIcon,
+      Icon: InboxIcon,
       count: notifications.length,
     },
     {
-      key:   "unread",
+      key: "unread",
       label: "UNREAD SIGNALS",
-      Icon:  Zap,
+      Icon: Zap,
       count: unreadCount,
     },
     {
-      key:   "read",
+      key: "read",
       label: "ARCHIVED LOGS",
-      Icon:  Archive,
+      Icon: Archive,
       count: archivedCount,
     },
   ];
@@ -354,7 +463,10 @@ export default function AdminNotifications() {
         <AppointmentModal
           notif={appointmentNotif}
           onClose={() => setAppointmentNotif(null)}
-          onNavigate={() => { setAppointmentNotif(null); navigate("/admin/appointments"); }}
+          onNavigate={() => {
+            setAppointmentNotif(null);
+            navigate("/admin/appointments");
+          }}
         />
       )}
       {applicationNotif && (
@@ -368,9 +480,73 @@ export default function AdminNotifications() {
           }}
         />
       )}
+      {staffReviewNotif && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-teal-500">
+            <div className="bg-teal-50 px-6 py-5 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0 text-3xl">
+                📋
+              </div>
+              <div className="flex-1">
+                <h2 className="text-base font-extrabold text-teal-800">
+                  New Staff Review
+                </h2>
+                <p className="text-xs text-teal-600 mt-0.5">
+                  Staff has submitted a recommendation
+                </p>
+              </div>
+              <button
+                onClick={() => setStaffReviewNotif(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+                  Review Summary
+                </p>
+                <p className="text-sm font-semibold text-gray-800">
+                  {staffReviewNotif.title}
+                </p>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  {staffReviewNotif.message}
+                </p>
+                {staffReviewNotif.profiles?.full_name && (
+                  <p className="text-xs text-orange-500 mt-2 font-medium">
+                    👤 Reviewed by: {staffReviewNotif.profiles.full_name}
+                  </p>
+                )}
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-xs text-orange-800 space-y-1">
+                <p className="font-bold mb-1">⚡ Admin Action Required:</p>
+                <p>• Review the full application and staff remarks</p>
+                <p>• Make the final approval or rejection decision</p>
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => {
+                  setStaffReviewNotif(null);
+                  navigate("/admin/reviewed-applications");
+                }}
+                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+              >
+                View Reviewed Applications →
+              </button>
+              <button
+                onClick={() => setStaffReviewNotif(null)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto space-y-6">
-
         {/* ── PAGE HEADER ── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
@@ -397,10 +573,8 @@ export default function AdminNotifications() {
 
         {/* ── BODY: LEFT PANEL + RIGHT PANEL ── */}
         <div className="flex gap-5 items-start">
-
           {/* ── LEFT: DISPATCH FILTER PANEL ── */}
           <div className="w-64 flex-shrink-0 space-y-4">
-
             {/* Filter card */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-5 pt-5 pb-3">
@@ -421,12 +595,18 @@ export default function AdminNotifications() {
                           : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                       }`}
                     >
-                      <span className={`flex-1 text-[11px] font-black uppercase tracking-[0.12em] ${isActive ? "text-white" : "text-gray-600"}`}>
+                      <span
+                        className={`flex-1 text-[11px] font-black uppercase tracking-[0.12em] ${isActive ? "text-white" : "text-gray-600"}`}
+                      >
                         {label}
                       </span>
-                      <span className={`text-xs font-black tabular-nums px-2 py-0.5 rounded-lg ${
-                        isActive ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-                      }`}>
+                      <span
+                        className={`text-xs font-black tabular-nums px-2 py-0.5 rounded-lg ${
+                          isActive
+                            ? "bg-white/20 text-white"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
                         {count}
                       </span>
                     </button>
@@ -445,7 +625,8 @@ export default function AdminNotifications() {
                   Automated Cleansing
                 </p>
                 <p className="text-[10px] text-gray-400 leading-relaxed uppercase tracking-wide font-medium">
-                  Signals older than 90 days are automatically archived to cold storage.
+                  Signals older than 90 days are automatically archived to cold
+                  storage.
                 </p>
               </div>
             </div>
@@ -463,13 +644,18 @@ export default function AdminNotifications() {
 
           {/* ── RIGHT: SIGNAL STREAM PANEL ── */}
           <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[480px] flex flex-col">
-
             {/* Stream header */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/60">
               <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${unreadCount > 0 ? "bg-green-400 animate-pulse" : "bg-gray-300"}`} />
+                <span
+                  className={`w-2 h-2 rounded-full ${unreadCount > 0 ? "bg-green-400 animate-pulse" : "bg-gray-300"}`}
+                />
                 <p className="text-[11px] font-black text-gray-500 uppercase tracking-[0.18em]">
-                  {filter === "all" ? "Live Signal Stream" : filter === "unread" ? "Unread Signals" : "Archived Logs"}
+                  {filter === "all"
+                    ? "Live Signal Stream"
+                    : filter === "unread"
+                      ? "Unread Signals"
+                      : "Archived Logs"}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -489,7 +675,9 @@ export default function AdminNotifications() {
             {loading ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 py-20">
                 <div className="w-10 h-10 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fetching signals…</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                  Fetching signals…
+                </p>
               </div>
             ) : filtered.length === 0 ? (
               /* ── EMPTY STATE matching design ── */
@@ -512,11 +700,12 @@ export default function AdminNotifications() {
             ) : (
               <div className="flex-1 divide-y divide-gray-50 overflow-y-auto">
                 {filtered.map((notif) => {
-                  const cat    = getCategory(notif);
-                  const dot    = DOT_COLORS[cat] || "bg-gray-400";
+                  const cat = getCategory(notif);
+                  const dot = DOT_COLORS[cat] || "bg-gray-400";
                   const accent = SIGNAL_ACCENT[cat] || "border-l-gray-300";
                   const typeLabel = SIGNAL_TYPE_LABEL[cat] || "SYSTEM";
-                  const sender = notif.profiles?.full_name || notif.profiles?.email || null;
+                  const sender =
+                    notif.profiles?.full_name || notif.profiles?.email || null;
 
                   return (
                     <div
@@ -530,20 +719,28 @@ export default function AdminNotifications() {
                     >
                       {/* Status dot */}
                       <div className="flex-shrink-0 pt-1.5">
-                        <div className={`w-2.5 h-2.5 rounded-full ${notif.is_read ? "bg-gray-200" : dot}`} />
+                        <div
+                          className={`w-2.5 h-2.5 rounded-full ${notif.is_read ? "bg-gray-200" : dot}`}
+                        />
                       </div>
 
                       {/* Emoji icon */}
-                      <div className={`flex-shrink-0 text-xl leading-none pt-0.5 ${notif.is_read ? "grayscale opacity-50" : ""}`}>
+                      <div
+                        className={`flex-shrink-0 text-xl leading-none pt-0.5 ${notif.is_read ? "grayscale opacity-50" : ""}`}
+                      >
                         {CAT_EMOJI[cat] || "🔔"}
                       </div>
 
                       {/* Body */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`text-[9px] font-black uppercase tracking-[0.18em] px-2 py-0.5 rounded-md ${
-                            notif.is_read ? "bg-gray-100 text-gray-400" : "bg-gray-900 text-white"
-                          }`}>
+                          <span
+                            className={`text-[9px] font-black uppercase tracking-[0.18em] px-2 py-0.5 rounded-md ${
+                              notif.is_read
+                                ? "bg-gray-100 text-gray-400"
+                                : "bg-gray-900 text-white"
+                            }`}
+                          >
                             {typeLabel}
                           </span>
                           {!notif.is_read && (
@@ -552,10 +749,14 @@ export default function AdminNotifications() {
                             </span>
                           )}
                         </div>
-                        <p className={`text-sm font-bold leading-snug ${notif.is_read ? "text-gray-400" : "text-gray-900"}`}>
+                        <p
+                          className={`text-sm font-bold leading-snug ${notif.is_read ? "text-gray-400" : "text-gray-900"}`}
+                        >
                           {notif.title}
                         </p>
-                        <p className={`text-xs leading-relaxed mt-0.5 line-clamp-2 ${notif.is_read ? "text-gray-300" : "text-gray-500"}`}>
+                        <p
+                          className={`text-xs leading-relaxed mt-0.5 line-clamp-2 ${notif.is_read ? "text-gray-300" : "text-gray-500"}`}
+                        >
                           {notif.message}
                         </p>
                         {sender && (

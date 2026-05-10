@@ -997,7 +997,7 @@ export default function AdminSettings() {
                   {/* New password */}
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
-                      New Passphrase
+                      New Password
                     </label>
                     <div className="relative">
                       <input
@@ -1048,7 +1048,7 @@ export default function AdminSettings() {
                   {/* Confirm password */}
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
-                      Verify Cipher
+                      Verify Password
                     </label>
                     <div className="relative">
                       <input

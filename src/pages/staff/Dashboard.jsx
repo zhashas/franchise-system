@@ -275,26 +275,33 @@ export default function StaffDashboard() {
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <StaffLayout>
-      <div className="space-y-8">
-        {/* ── HEADER ── */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-              Staff Dashboard
-            </h1>
-            <p className="text-slate-500 text-sm font-medium mt-1">
-              Welcome back, <strong>{profile?.full_name || "Staff"}</strong>.
-              Here's today's overview.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 self-start md:self-auto">
-            <Eye size={14} className="text-blue-500" />
-            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
-              View-Only Access
-            </span>
+      {/* ── HEADER ── */}
+      <div className="top-0 z-30 -mx-8 px-8 py-6 mb-8">
+        <div className="max-w-[1600px] mx-auto">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight">
+                Staff Dashboard
+              </h1>
+              <p className="text-slate-500 text-sm font-medium mt-1">
+                Welcome back, <strong>{profile?.full_name || "Staff"}</strong>.
+                Here's today's overview.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
+                <Eye size={14} className="text-blue-500" />
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                  View-Only Access
+                </span>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
 
+      {/* ── MAIN CONTENT WITH MAX WIDTH ── */}
+      <div className="max-w-[1600px] mx-auto space-y-8">
         {/* ── SLOT PROGRESS BAR ── */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-1 relative overflow-hidden">
           <div className="flex flex-col md:flex-row gap-6 p-6">

@@ -21,6 +21,7 @@ import AdminApplicationDetail from "../pages/admin/AdminApplicationDetail";
 import AdminStaff from "../pages/admin/AdminStaff";
 import AdminAddApplicant from "../pages/admin/AddApplicant";
 import AdminLogs from "../pages/admin/AdminLogs";
+import AdminReviewedApplications from "../pages/admin/AdminReviewedApplications";
 
 import StaffDashboard from "../pages/staff/Dashboard";
 import StaffApplications from "../pages/staff/Applications";
@@ -150,6 +151,14 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
               <AdminLogs />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/reviewed-applications"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminReviewedApplications />
             </ProtectedRoute>
           }
         />

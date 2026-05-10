@@ -1,14 +1,78 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
 import {
   Calendar,
   X,
   ChevronRight,
-  ClipboardList,
   Check,
   Edit2,
+  Clock,
+  MapPin,
+  User,
 } from "lucide-react";
+
+const cn = (...classes) => classes.filter(Boolean).join(" ");
+
+// ── Date helpers (no timezone shift) ─────────────────────────────────────────
+const parseLocalDate = (str) => {
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
+const formatFullDate = (str) =>
+  parseLocalDate(str).toLocaleDateString("en-PH", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+const formatMonthDay = (str) => {
+  const d = parseLocalDate(str);
+  return {
+    month: d.toLocaleString("en-US", { month: "short" }),
+    day: String(d.getDate()).padStart(2, "0"),
+  };
+};
+
+// ── Status config (shared with applicant styling) ─────────────────────────────
+const getStatusConfig = (status) => {
+  switch (status) {
+    case "confirmed":
+      return {
+        label: "Confirmed",
+        badge: "bg-blue-100 text-blue-700 border-blue-200",
+        dot: "bg-blue-500",
+        cardBg: "bg-blue-50",
+        headerGradient: "from-blue-600 to-indigo-800",
+      };
+    case "completed":
+      return {
+        label: "Completed",
+        badge: "bg-green-100 text-green-700 border-green-200",
+        dot: "bg-green-500",
+        cardBg: "bg-green-50",
+        headerGradient: "from-emerald-600 to-emerald-800",
+      };
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        badge: "bg-red-100 text-red-600 border-red-200",
+        dot: "bg-red-500",
+        cardBg: "bg-red-50",
+        headerGradient: "from-rose-600 to-rose-800",
+      };
+    default:
+      return {
+        label: "Pending",
+        badge: "bg-yellow-100 text-yellow-700 border-yellow-200",
+        dot: "bg-yellow-500",
+        cardBg: "bg-yellow-50",
+        headerGradient: "from-amber-600 to-amber-800",
+      };
+  }
+};
 
 export default function AdminAppointments() {
   const [appointments, setAppointments] = useState([]);
@@ -17,6 +81,7 @@ export default function AdminAppointments() {
   const [showModal, setShowModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [formData, setFormData] = useState({
     applicant_id: "",
     application_id: "",
@@ -29,29 +94,98 @@ export default function AdminAppointments() {
   const [submitting, setSubmitting] = useState(false);
   const [timeConfirmed, setTimeConfirmed] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState(null);
+  const [adminId, setAdminId] = useState(null);
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-  const fetchData = async () => {
-    const { data: apts } = await supabase
-      .from("appointments")
-      .select("*, profiles(full_name, email)")
-      .order("scheduled_date", { ascending: true });
-    setAppointments(apts || []);
+  // ── Get current admin user ────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setAdminId(user.id);
+    });
+  }, []);
 
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("role", "applicant")
-      .order("full_name", { ascending: true });
-    setApplicants(profs || []);
-    setLoading(false);
-  };
+  // ── Fetch all appointments ────────────────────────────────────────────────
+  const fetchData = useCallback(async () => {
+    try {
+      const { data: apts, error } = await supabase
+        .from("appointments")
+        .select(
+          `
+          *,
+          profiles!appointments_applicant_id_fkey (full_name, email),
+          applications!appointments_application_id_fkey (type, status)
+        `,
+        )
+        .order("scheduled_date", { ascending: true });
+
+      if (error) throw error;
+      setAppointments(apts || []);
+
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .eq("role", "applicant")
+        .order("full_name", { ascending: true });
+
+      setApplicants(profs || []);
+    } catch (err) {
+      console.error("[AdminAppointments] fetch error:", err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
-  // ── Form handlers ──────────────────────────────────────────────────────────
+  // ── Realtime subscription ─────────────────────────────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const channelName = `admin-appointments-${Date.now()}`;
+
+    channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments" },
+        (payload) => {
+          if (!isMounted) return;
+          if (payload.eventType === "INSERT") {
+            fetchData();
+          } else if (payload.eventType === "UPDATE") {
+            setAppointments((prev) =>
+              prev.map((a) =>
+                a.id === payload.new.id ? { ...a, ...payload.new } : a,
+              ),
+            );
+            // Keep detail panel in sync
+            setSelectedAppointment((prev) =>
+              prev?.id === payload.new.id ? { ...prev, ...payload.new } : prev,
+            );
+          } else if (payload.eventType === "DELETE") {
+            setAppointments((prev) =>
+              prev.filter((a) => a.id !== payload.old.id),
+            );
+            setSelectedAppointment((prev) =>
+              prev?.id === payload.old.id ? null : prev,
+            );
+          }
+        },
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR")
+          console.error("[AdminAppointments] Realtime error");
+      });
+
+    return () => {
+      isMounted = false;
+      if (channel) supabase.removeChannel(channel).catch(console.error);
+    };
+  }, [fetchData]);
+
+  // ── Form handlers ─────────────────────────────────────────────────────────
   const handleChange = (e) =>
     setFormData((p) => ({ ...p, [e.target.name]: e.target.value }));
 
@@ -71,12 +205,12 @@ export default function AdminAppointments() {
       setSelectedApplicantApps([]);
       return;
     }
-    const { data: apps } = await supabase
+    const { data } = await supabase
       .from("applications")
-      .select("*")
+      .select("id, type, status, submitted_at")
       .eq("applicant_id", applicantId)
       .order("submitted_at", { ascending: false });
-    setSelectedApplicantApps(apps || []);
+    setSelectedApplicantApps(data || []);
   };
 
   const handleEditClick = async (appointment) => {
@@ -90,33 +224,37 @@ export default function AdminAppointments() {
       status: appointment.status,
     });
     setTimeConfirmed(true);
-
-    // Fetch applications for this applicant
-    const { data: apps } = await supabase
+    const { data } = await supabase
       .from("applications")
-      .select("*")
+      .select("id, type, status, submitted_at")
       .eq("applicant_id", appointment.applicant_id)
       .order("submitted_at", { ascending: false });
-    setSelectedApplicantApps(apps || []);
-
+    setSelectedApplicantApps(data || []);
     setShowModal(true);
   };
 
+  // ── Submit (create or update) ─────────────────────────────────────────────
   const handleSchedule = async (e) => {
     e.preventDefault();
     if (!timeConfirmed && formData.scheduled_time) {
-      alert("Please confirm the time by clicking the 'Okay' button.");
+      alert('Please confirm the time by clicking "Okay".');
       return;
     }
     setSubmitting(true);
+
     try {
-      const selectedApp = selectedApplicantApps.find(
-        (a) => a.id === formData.application_id,
-      );
+      const dateLabel = formatFullDate(formData.scheduled_date);
+      const notifMessage = `Your appointment has been ${
+        editingAppointment ? "updated" : "scheduled"
+      } on ${dateLabel} at ${formData.scheduled_time}. ${
+        formData.notes
+          ? "Note: " + formData.notes
+          : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
+      }`;
 
       if (editingAppointment) {
-        // Update existing appointment
-        await supabase
+        // ── UPDATE ──
+        const { error } = await supabase
           .from("appointments")
           .update({
             applicant_id: formData.applicant_id,
@@ -127,30 +265,10 @@ export default function AdminAppointments() {
             status: formData.status,
           })
           .eq("id", editingAppointment.id);
-
-        await supabase.from("notifications").insert({
-          recipient_id: formData.applicant_id,
-          recipient_type: "applicant",
-          sender_type: "admin",
-          notification_type: "appointment",
-          title: "📅 Appointment Updated!",
-          message: `Your appointment has been updated to ${new Date(
-            formData.scheduled_date,
-          ).toLocaleDateString("en-PH", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })} at ${formData.scheduled_time}. ${
-            formData.notes
-              ? "Note: " + formData.notes
-              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
-          }`,
-          is_read: false,
-        });
+        if (error) throw error;
       } else {
-        // Create new appointment
-        await supabase.from("appointments").insert({
+        // ── INSERT ──
+        const { error } = await supabase.from("appointments").insert({
           applicant_id: formData.applicant_id,
           application_id: formData.application_id || null,
           scheduled_date: formData.scheduled_date,
@@ -158,46 +276,62 @@ export default function AdminAppointments() {
           notes: formData.notes,
           status: "confirmed",
         });
+        if (error) throw error;
 
+        // Move application to under_review if still pending
+        if (formData.application_id) {
+          const selectedApp = selectedApplicantApps.find(
+            (a) => a.id === formData.application_id,
+          );
+          if (selectedApp?.status === "pending") {
+            await supabase
+              .from("applications")
+              .update({ status: "under_review" })
+              .eq("id", formData.application_id);
+          }
+        }
+      }
+
+      // ── Notify applicant (sender_id required by FK) ──
+      if (adminId) {
         await supabase.from("notifications").insert({
           recipient_id: formData.applicant_id,
           recipient_type: "applicant",
+          sender_id: adminId,
           sender_type: "admin",
           notification_type: "appointment",
-          title: "📅 Appointment Scheduled!",
-          message: `Your appointment has been scheduled on ${new Date(
-            formData.scheduled_date,
-          ).toLocaleDateString("en-PH", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })} at ${formData.scheduled_time}. ${
-            formData.notes
-              ? "Note: " + formData.notes
-              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
-          }`,
+          title: editingAppointment
+            ? "📅 Appointment Updated!"
+            : "📅 Appointment Scheduled!",
+          message: notifMessage,
+          application_id: formData.application_id || null,
           is_read: false,
         });
-
-        if (selectedApp?.status === "pending") {
-          await supabase
-            .from("applications")
-            .update({ status: "under_review" })
-            .eq("id", formData.application_id);
-        }
       }
 
       closeModal();
       fetchData();
+    } catch (err) {
+      console.error("[AdminAppointments] submit error:", err.message);
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ── Quick status update ───────────────────────────────────────────────────
   const updateStatus = async (id, status) => {
-    await supabase.from("appointments").update({ status }).eq("id", id);
-    fetchData();
+    const { error } = await supabase
+      .from("appointments")
+      .update({ status })
+      .eq("id", id);
+    if (!error) {
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status } : a)),
+      );
+      setSelectedAppointment((prev) =>
+        prev?.id === id ? { ...prev, status } : prev,
+      );
+    }
   };
 
   const closeModal = () => {
@@ -215,25 +349,24 @@ export default function AdminAppointments() {
     });
   };
 
-  // ── Derived state ──────────────────────────────────────────────────────────
-  const todayDay = new Date().getDate().toString().padStart(2, "0");
+  // ── Derived state ─────────────────────────────────────────────────────────
   const todayStr = new Date().toISOString().split("T")[0];
+  const todayDay = new Date().getDate().toString().padStart(2, "0");
   const todayApts = appointments.filter(
     (a) => a.scheduled_date === todayStr && a.status !== "cancelled",
   );
   const remaining = todayApts.filter((a) => a.status !== "completed").length;
 
   const filtered = appointments
-    .filter((apt) =>
-      statusFilter === "all" ? true : apt.status === statusFilter,
-    )
-    .filter((apt) => {
+    .filter((a) => statusFilter === "all" || a.status === statusFilter)
+    .filter((a) => {
       const q = searchQuery.toLowerCase();
+      if (!q) return true;
       return (
-        apt.profiles?.full_name?.toLowerCase().includes(q) ||
-        apt.profiles?.email?.toLowerCase().includes(q) ||
-        apt.notes?.toLowerCase().includes(q) ||
-        apt.scheduled_date?.includes(q)
+        a.profiles?.full_name?.toLowerCase().includes(q) ||
+        a.profiles?.email?.toLowerCase().includes(q) ||
+        a.notes?.toLowerCase().includes(q) ||
+        a.scheduled_date?.includes(q)
       );
     });
 
@@ -244,14 +377,38 @@ export default function AdminAppointments() {
     { key: "cancelled", label: "CANCELLED" },
   ];
 
-  const statusBadge = (status) => {
-    if (status === "confirmed") return "bg-blue-100 text-blue-700";
-    if (status === "completed") return "bg-green-100 text-green-700";
-    if (status === "cancelled") return "bg-red-100 text-red-600";
-    return "bg-yellow-100 text-yellow-700";
-  };
+  const stats = [
+    {
+      label: "Today",
+      value: todayApts.length,
+      detail: `${remaining} remaining`,
+      color: "text-blue-600",
+      dot: "bg-blue-400",
+    },
+    {
+      label: "Confirmed",
+      value: appointments.filter((a) => a.status === "confirmed").length,
+      detail: "Upcoming",
+      color: "text-green-600",
+      dot: "bg-green-400",
+    },
+    {
+      label: "Completed",
+      value: appointments.filter((a) => a.status === "completed").length,
+      detail: "Done",
+      color: "text-gray-600",
+      dot: "bg-gray-400",
+    },
+    {
+      label: "Cancelled",
+      value: appointments.filter((a) => a.status === "cancelled").length,
+      detail: "Voided",
+      color: "text-red-600",
+      dot: "bg-red-400",
+    },
+  ];
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <AdminLayout>
       <div className="max-w-7xl mx-auto space-y-5">
@@ -267,21 +424,18 @@ export default function AdminAppointments() {
               Orchestrate applicant on-site verifications.
             </p>
           </div>
-
-          {/* Initialize Schedule button */}
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-black text-sm px-5 py-3 rounded-xl shadow-md transition-all"
+            className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-black text-sm px-5 py-3 rounded-xl shadow-md transition-all"
           >
             <span className="text-lg leading-none">+</span>
-            <span>Initialize Schedule</span>
+            <span>Create Schedule</span>
             <ChevronRight size={16} />
           </button>
         </div>
 
-        {/* ── TODAY BANNER with filter tabs ── */}
+        {/* ── TODAY BANNER ── */}
         <div className="bg-gray-900 rounded-2xl px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
-          {/* Left: today info */}
           <div className="flex items-center gap-4">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
@@ -296,8 +450,6 @@ export default function AdminAppointments() {
               {remaining} Appointment{remaining !== 1 ? "s" : ""} Remaining
             </p>
           </div>
-
-          {/* Right: status filter tabs */}
           <div className="flex items-center gap-1 bg-gray-800 p-1 rounded-xl">
             {statusTabs.map(({ key, label }) => (
               <button
@@ -315,194 +467,395 @@ export default function AdminAppointments() {
           </div>
         </div>
 
-        {/* ── APPOINTMENTS LIST PANEL ── */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[340px] flex flex-col">
-          {/* Optional search bar */}
-          {appointments.length > 0 && (
-            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
-              <span className="text-gray-300 text-lg">⌕</span>
-              <input
-                type="text"
-                placeholder="Search by name, email, date or notes…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 text-sm text-gray-700 placeholder-gray-300 outline-none bg-transparent"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="text-[11px] font-bold text-gray-400 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded-lg transition"
-                >
-                  Clear
-                </button>
-              )}
+        {/* ── STATS ROW ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {stats.map(({ label, value, detail, color, dot }) => (
+            <div
+              key={label}
+              className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-sm text-center"
+            >
+              <div className={`text-2xl font-black tabular-nums ${color}`}>
+                {value}
+              </div>
+              <div className="flex items-center justify-center gap-1 mt-0.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                  {label}
+                </span>
+              </div>
+              <p className="text-[9px] text-gray-300 mt-0.5">{detail}</p>
             </div>
-          )}
-
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
-              <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs font-bold text-gray-300 uppercase tracking-widest">
-                Loading schedule…
-              </p>
-            </div>
-          ) : filtered.length === 0 ? (
-            /* ── EMPTY STATE matching design ── */
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
-              <Calendar size={40} className="text-gray-200" />
-              <p className="text-base font-black text-gray-600">
-                No Appointments Booked
-              </p>
-              <p className="text-sm text-gray-400 text-center max-w-xs">
-                {searchQuery
-                  ? `No results for "${searchQuery}"`
-                  : "Start by scheduling an applicant from the applications repository."}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    {[
-                      "Applicant",
-                      "Date",
-                      "Time",
-                      "Notes",
-                      "Status",
-                      "Actions",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-[0.15em]"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filtered.map((apt) => (
-                    <tr
-                      key={apt.id}
-                      onClick={() => handleEditClick(apt)}
-                      className="hover:bg-gray-50/60 transition-colors cursor-pointer group"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1">
-                            <p className="text-sm font-bold text-gray-900">
-                              {apt.profiles?.full_name}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                              {apt.profiles?.email}
-                            </p>
-                          </div>
-                          <Edit2
-                            size={14}
-                            className="text-gray-300 group-hover:text-gray-500 transition opacity-0 group-hover:opacity-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">
-                        {new Date(apt.scheduled_date).toLocaleDateString(
-                          "en-PH",
-                          {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          },
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-sm text-gray-700 font-mono whitespace-nowrap">
-                        {apt.scheduled_time}
-                      </td>
-                      <td className="px-5 py-4 text-xs text-gray-400 max-w-[180px]">
-                        <span className="line-clamp-2">{apt.notes || "—"}</span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusBadge(apt.status)}`}
-                        >
-                          {apt.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div
-                          className="flex items-center gap-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {apt.status !== "completed" &&
-                            apt.status !== "cancelled" && (
-                              <button
-                                onClick={() =>
-                                  updateStatus(apt.id, "completed")
-                                }
-                                className="text-[10px] font-black px-3 py-1.5 rounded-lg bg-green-50 text-green-600 border border-green-200 hover:bg-green-100 transition uppercase tracking-wide"
-                              >
-                                Complete
-                              </button>
-                            )}
-                          {apt.status !== "cancelled" &&
-                            apt.status !== "completed" && (
-                              <button
-                                onClick={() =>
-                                  updateStatus(apt.id, "cancelled")
-                                }
-                                className="text-[10px] font-black px-3 py-1.5 rounded-lg bg-red-50 text-red-500 border border-red-200 hover:bg-red-100 transition uppercase tracking-wide"
-                              >
-                                Cancel
-                              </button>
-                            )}
-                          {(apt.status === "completed" ||
-                            apt.status === "cancelled") && (
-                            <span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest">
-                              Locked
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Footer count */}
-          {!loading && appointments.length > 0 && (
-            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-end">
-              <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-                {filtered.length} / {appointments.length} records shown
-              </span>
-            </div>
-          )}
+          ))}
         </div>
 
-        {/* ── REQUIREMENT PROTOCOL CARD ── */}
-        <div className="bg-orange-50 border border-orange-100 rounded-2xl px-6 py-5 flex items-center gap-5">
-          <div className="w-12 h-12 rounded-xl bg-orange-100 border border-orange-200 flex items-center justify-center flex-shrink-0">
-            <ClipboardList size={22} className="text-orange-500" />
+        {/* ── MAIN GRID: List + Detail ── */}
+        <div className="grid grid-cols-12 gap-5">
+          {/* ── LEFT: Appointments List ── */}
+          <div className="col-span-12 lg:col-span-8">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px] flex flex-col">
+              {/* Search */}
+              {appointments.length > 0 && (
+                <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+                  <span className="text-gray-300 text-lg">⌕</span>
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, date or notes…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="flex-1 text-sm text-gray-700 placeholder-gray-300 outline-none bg-transparent"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="text-[11px] font-bold text-gray-400 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded-lg transition"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Panel header */}
+              <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      loading ? "bg-yellow-400 animate-pulse" : "bg-green-400"
+                    }`}
+                  />
+                  <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.18em]">
+                    Schedule Pipeline
+                  </p>
+                </div>
+                <span className="text-[10px] text-gray-300 font-mono">
+                  {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {/* Body */}
+              {loading ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+                  <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs font-bold text-gray-300 uppercase tracking-widest">
+                    Loading schedule…
+                  </p>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+                  <Calendar size={40} className="text-gray-200" />
+                  <p className="text-base font-black text-gray-600">
+                    No Appointments Found
+                  </p>
+                  <p className="text-sm text-gray-400 text-center max-w-xs">
+                    {searchQuery
+                      ? `No results for "${searchQuery}"`
+                      : "Schedule an applicant using the Initialize Schedule button."}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 divide-y divide-gray-50">
+                  {filtered.map((apt) => {
+                    const cfg = getStatusConfig(apt.status);
+                    const isActive = selectedAppointment?.id === apt.id;
+                    const { month, day } = formatMonthDay(apt.scheduled_date);
+
+                    return (
+                      <div
+                        key={apt.id}
+                        onClick={() => setSelectedAppointment(apt)}
+                        className={cn(
+                          "group flex items-center gap-4 px-6 py-5 cursor-pointer transition-all",
+                          isActive
+                            ? "bg-blue-50/50 border-l-4 border-blue-600"
+                            : "hover:bg-gray-50/70",
+                        )}
+                      >
+                        {/* Date badge */}
+                        <div
+                          className={cn(
+                            "w-12 h-12 rounded-lg flex flex-col items-center justify-center shrink-0 transition-colors",
+                            apt.status === "completed"
+                              ? "bg-emerald-50 text-emerald-600"
+                              : apt.status === "confirmed"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-gray-100 text-gray-400",
+                          )}
+                        >
+                          <span className="text-[10px] font-bold uppercase">
+                            {month}
+                          </span>
+                          <span className="text-lg font-bold leading-none">
+                            {day}
+                          </span>
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <p className="text-sm font-black text-gray-900">
+                              {apt.profiles?.full_name || "Unknown"}
+                            </p>
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
+                                cfg.badge,
+                              )}
+                            >
+                              {cfg.label}
+                            </span>
+                            {apt.applications?.type && (
+                              <span className="text-[9px] font-bold text-gray-300 uppercase tracking-widest">
+                                {apt.applications.type}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                            <span className="flex items-center gap-1">
+                              <Clock size={10} />
+                              {apt.scheduled_time}
+                            </span>
+                            {apt.profiles?.email && (
+                              <span>{apt.profiles.email}</span>
+                            )}
+                            {apt.notes && (
+                              <span className="truncate max-w-[160px]">
+                                📝 {apt.notes}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Edit hint */}
+                        <Edit2
+                          size={14}
+                          className="text-gray-200 group-hover:text-gray-400 transition opacity-0 group-hover:opacity-100 flex-shrink-0"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer */}
+              {!loading && appointments.length > 0 && (
+                <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
+                    {filtered.length} / {appointments.length} records
+                  </span>
+                  <button
+                    onClick={fetchData}
+                    className="text-[10px] font-bold text-gray-400 hover:text-green-500 transition uppercase tracking-widest"
+                  >
+                    ↻ Refresh
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-black text-orange-700 mb-0.5">
-              Requirement Protocol
-            </p>
-            <p className="text-xs text-orange-500 leading-relaxed">
-              Remind applicants to bring their original documents and valid
-              identification. Verification usually takes between 15–20 minutes
-              depending on unit condition.
-            </p>
+
+          {/* ── RIGHT: Detail Panel (same styling as applicant) ── */}
+          <div className="col-span-12 lg:col-span-4 lg:sticky lg:top-8">
+            {!selectedAppointment ? (
+              <div className="bg-gray-100 rounded-2xl flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-gray-200 shadow-sm min-h-[300px]">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-gray-300 mb-4 shadow-sm">
+                  <Calendar size={32} />
+                </div>
+                <h4 className="text-sm font-bold text-gray-600">
+                  No Appointment Selected
+                </h4>
+                <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                  Click any appointment from the list to view details and
+                  actions.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white ring-1 ring-white/10">
+                {/* Gradient header */}
+                <div
+                  className={cn(
+                    "relative h-32 p-6 flex items-end bg-gradient-to-br",
+                    getStatusConfig(selectedAppointment.status).headerGradient,
+                  )}
+                >
+                  <button
+                    onClick={() => setSelectedAppointment(null)}
+                    className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                  <div>
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-white/80">
+                      Appointment Detail
+                    </p>
+                    <h2 className="text-xl font-bold leading-tight mt-1">
+                      {selectedAppointment.profiles?.full_name || "Applicant"}
+                    </h2>
+                    <p className="text-xs text-white/60 mt-0.5">
+                      {selectedAppointment.profiles?.email}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 p-6 space-y-5 overflow-y-auto">
+                  {/* Status tracking */}
+                  <section>
+                    <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest mb-3">
+                      Status Tracking
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <div className="flex-1 flex justify-between">
+                          <span className="text-xs font-medium">
+                            Schedule Created
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {selectedAppointment.created_at
+                              ? new Date(
+                                  selectedAppointment.created_at,
+                                ).toLocaleDateString("en-PH", {
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "w-2 h-2 rounded-full flex-shrink-0",
+                            getStatusConfig(selectedAppointment.status).dot,
+                          )}
+                        />
+                        <div className="flex-1 flex justify-between">
+                          <span className="text-xs font-bold capitalize">
+                            {selectedAppointment.status}
+                          </span>
+                          <span className="text-[10px] text-blue-400">
+                            Current
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Notes */}
+                  <section>
+                    <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest mb-2">
+                      Notes
+                    </h4>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                      <p className="text-sm leading-relaxed text-slate-300 italic">
+                        "
+                        {selectedAppointment.notes ||
+                          "No specific notes provided. Please contact the office for details."}
+                        "
+                      </p>
+                    </div>
+                  </section>
+
+                  {/* Details grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                      <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                        Time
+                      </p>
+                      <p className="text-sm font-bold">
+                        {selectedAppointment.scheduled_time}
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                      <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                        Application
+                      </p>
+                      <p className="text-sm font-bold capitalize">
+                        {selectedAppointment.applications?.type || "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Scheduled date */}
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                    <p className="text-[8px] text-slate-400 font-bold uppercase mb-1">
+                      Scheduled Date
+                    </p>
+                    <p className="text-sm font-bold">
+                      {formatFullDate(selectedAppointment.scheduled_date)}
+                    </p>
+                  </div>
+
+                  {/* Quick actions */}
+                  <section>
+                    <h4 className="text-[10px] uppercase text-slate-400 font-bold tracking-widest mb-3">
+                      Quick Actions
+                    </h4>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => handleEditClick(selectedAppointment)}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+                      >
+                        <Edit2 size={13} /> Edit Appointment
+                      </button>
+
+                      {selectedAppointment.status !== "completed" &&
+                        selectedAppointment.status !== "cancelled" && (
+                          <button
+                            onClick={() =>
+                              updateStatus(selectedAppointment.id, "completed")
+                            }
+                            className="w-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+                          >
+                            <Check size={13} /> Mark as Completed
+                          </button>
+                        )}
+
+                      {selectedAppointment.status !== "cancelled" &&
+                        selectedAppointment.status !== "completed" && (
+                          <button
+                            onClick={() =>
+                              updateStatus(selectedAppointment.id, "cancelled")
+                            }
+                            className="w-full bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+                          >
+                            <X size={13} /> Cancel Appointment
+                          </button>
+                        )}
+
+                      {(selectedAppointment.status === "completed" ||
+                        selectedAppointment.status === "cancelled") && (
+                        <p className="text-center text-[10px] text-slate-500 uppercase tracking-widest font-bold py-2">
+                          🔒 Appointment Locked
+                        </p>
+                      )}
+                    </div>
+                  </section>
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 bg-slate-800/40 flex items-center justify-between border-t border-slate-800/50">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full border-2 border-slate-700 bg-slate-600 flex items-center justify-center">
+                      <User size={12} />
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      Admin
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest italic">
+                    Officer on duty
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-          <button className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.18em] px-4 py-2.5 rounded-xl border-2 border-orange-300 text-orange-600 hover:bg-orange-100 transition bg-white whitespace-nowrap">
-            Download Protocol.pdf
-          </button>
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════
           SCHEDULE MODAL
-      ══════════════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════════════ */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 overflow-hidden">
@@ -516,7 +869,7 @@ export default function AdminAppointments() {
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {editingAppointment
-                    ? "Update appointment details"
+                    ? "Update appointment details below."
                     : "Fill in the details to notify the applicant."}
                 </p>
               </div>
@@ -537,7 +890,7 @@ export default function AdminAppointments() {
               onSubmit={handleSchedule}
               className="px-6 py-5 flex flex-col gap-4"
             >
-              {/* Select Applicant */}
+              {/* Applicant */}
               <div>
                 <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
                   Applicant <span className="text-red-400">*</span>
@@ -546,7 +899,7 @@ export default function AdminAppointments() {
                   value={formData.applicant_id}
                   onChange={handleApplicantChange}
                   required
-                  disabled={editingAppointment !== null}
+                  disabled={!!editingAppointment}
                   className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <option value="">— Select applicant —</option>
@@ -557,18 +910,18 @@ export default function AdminAppointments() {
                   ))}
                 </select>
                 {editingAppointment && (
-                  <p className="text-[10px] text-gray-400 mt-1 font-medium">
-                    Applicant cannot be changed when editing
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Applicant cannot be changed when editing.
                   </p>
                 )}
               </div>
 
-              {/* Select Application */}
+              {/* Application */}
               {selectedApplicantApps.length > 0 && (
                 <div>
                   <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
                     Application{" "}
-                    <span className="text-gray-300 font-medium normal-case">
+                    <span className="text-gray-300 font-normal normal-case">
                       (optional)
                     </span>
                   </label>
@@ -627,27 +980,28 @@ export default function AdminAppointments() {
                       value={formData.scheduled_time}
                       onChange={handleTimeChange}
                       required
-                      className={`w-full text-sm text-gray-700 border rounded-xl px-3 py-2.5 outline-none transition ${
+                      className={cn(
+                        "w-full text-sm text-gray-700 border rounded-xl px-3 py-2.5 outline-none transition",
                         timeConfirmed
                           ? "border-green-400 bg-green-50"
-                          : "border-gray-200 bg-gray-50 focus:border-gray-400"
-                      }`}
+                          : "border-gray-200 bg-gray-50 focus:border-gray-400",
+                      )}
                     />
                     {formData.scheduled_time && (
                       <button
                         type="button"
                         onClick={() => setTimeConfirmed(true)}
                         disabled={timeConfirmed}
-                        className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition ${
+                        className={cn(
+                          "absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition",
                           timeConfirmed
                             ? "bg-green-500 text-white cursor-default"
-                            : "bg-orange-500 hover:bg-orange-600 text-white"
-                        }`}
+                            : "bg-orange-500 hover:bg-orange-600 text-white",
+                        )}
                       >
                         {timeConfirmed ? (
                           <span className="flex items-center gap-1">
-                            <Check size={12} />
-                            Set
+                            <Check size={12} /> Set
                           </span>
                         ) : (
                           "Okay"
@@ -667,7 +1021,7 @@ export default function AdminAppointments() {
               <div>
                 <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
                   Notes{" "}
-                  <span className="text-gray-300 font-medium normal-case">
+                  <span className="text-gray-300 font-normal normal-case">
                     (optional)
                   </span>
                 </label>
@@ -681,7 +1035,7 @@ export default function AdminAppointments() {
                 />
               </div>
 
-              {/* Status (only when editing) */}
+              {/* Status — only when editing */}
               {editingAppointment && (
                 <div>
                   <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
@@ -701,7 +1055,7 @@ export default function AdminAppointments() {
                 </div>
               )}
 
-              {/* Submit buttons */}
+              {/* Submit */}
               <div className="flex gap-3 pt-1">
                 <button
                   type="submit"

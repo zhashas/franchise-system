@@ -1,7 +1,21 @@
 // pages/admin/AdminReports.jsx
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend,
+} from "recharts";
+import { Activity, ArrowUpRight, Search, TrendingUp } from "lucide-react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().split("T")[0];
@@ -16,6 +30,8 @@ const fmtDate = (str) =>
         day: "numeric",
       })
     : "—";
+
+const cn = (...classes) => classes.filter(Boolean).join(" ");
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 const exportCSV = (rows) => {
@@ -79,8 +95,11 @@ function findMatchingApp(franchise, applications, wantStatus) {
   )[0];
 }
 
+const normalizeStatus = (status) => (status || "").toLowerCase().trim();
+
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 export default function AdminReports() {
+  const navigate = useNavigate();
   const [franchises, setFranchises] = useState([]);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,8 +116,6 @@ export default function AdminReports() {
           .from("franchises")
           .select("*")
           .order("franchise_number", { ascending: true }),
-        // FIX: join profiles so email and phone are available even when
-        //      the applicant didn't fill them in the application details jsonb.
         supabase
           .from("applications")
           .select(
@@ -120,8 +137,6 @@ export default function AdminReports() {
       const anyApp = approvedApp || findMatchingApp(f, applications, null);
       const details = approvedApp?.details || anyApp?.details || {};
 
-      // FIX: franchises table has no email/contact_number columns.
-      //      Priority: application details → joined profile → fallback "—"
       const profileData = approvedApp?.profiles || anyApp?.profiles || {};
       const ownerName =
         details.franchise_owner || profileData.full_name || f.owner_name || "—";
@@ -168,6 +183,78 @@ export default function AdminReports() {
       };
     });
   }, [franchises, applications]);
+
+  // ── Application Stats ─────────────────────────────────────────────────────
+  const appStats = useMemo(
+    () => ({
+      total: applications.length,
+      pending: applications.filter(
+        (a) => normalizeStatus(a.status) === "pending",
+      ).length,
+      under_review: applications.filter(
+        (a) => normalizeStatus(a.status) === "under_review",
+      ).length,
+      approved: applications.filter(
+        (a) => normalizeStatus(a.status) === "approved",
+      ).length,
+      rejected: applications.filter(
+        (a) => normalizeStatus(a.status) === "rejected",
+      ).length,
+    }),
+    [applications],
+  );
+
+  // ── Application Velocity Chart Data ───────────────────────────────────────
+  const lineData = useMemo(() => {
+    const last30Days = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (29 - i));
+      return d.toISOString().split("T")[0];
+    });
+
+    const dateCounts = applications
+      .filter((a) => a?.submitted_at)
+      .reduce((acc, app) => {
+        const dateObj = new Date(app.submitted_at);
+        if (isNaN(dateObj.getTime())) return acc;
+        const date = dateObj.toISOString().split("T")[0];
+        acc[date] = (acc[date] || 0) + 1;
+        return acc;
+      }, {});
+
+    return last30Days.map((date) => ({
+      date: new Date(date).toLocaleDateString("en-PH", {
+        month: "short",
+        day: "numeric",
+      }),
+      count: dateCounts[date] || 0,
+    }));
+  }, [applications]);
+
+  // ── Application Status Bar Chart Data ─────────────────────────────────────
+  const barData = useMemo(
+    () => [
+      { name: "Pending", value: appStats.pending, fill: "#F59E0B" },
+      { name: "Under Review", value: appStats.under_review, fill: "#3B82F6" },
+      { name: "Approved", value: appStats.approved, fill: "#10B981" },
+      { name: "Rejected", value: appStats.rejected, fill: "#EF4444" },
+    ],
+    [appStats],
+  );
+
+  // ── Recent Applications for Queue ─────────────────────────────────────────
+  const recentApplications = useMemo(() => {
+    return applications
+      .filter(
+        (a) =>
+          normalizeStatus(a.status) === "pending" ||
+          normalizeStatus(a.status) === "under_review",
+      )
+      .sort(
+        (a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0),
+      )
+      .slice(0, 5);
+  }, [applications]);
 
   // ── Counts ────────────────────────────────────────────────────────────────
   const mtopCount = enriched.filter(
@@ -373,6 +460,185 @@ export default function AdminReports() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── APPLICATION ANALYTICS SECTION ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Application Velocity Chart */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+                  Application Velocity
+                </h3>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Daily submissions over the last 30 days
+                </p>
+              </div>
+              <Activity size={18} className="text-gray-300" />
+            </div>
+            <div className="h-[300px] w-full">
+              {lineData.length > 0 && lineData.some((d) => d.count > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={lineData}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="#E5E7EB"
+                    />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: "12px",
+                        border: "1px solid #E5E7EB",
+                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                        padding: "12px",
+                      }}
+                      labelStyle={{ fontWeight: "bold", marginBottom: "4px" }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#F97316"
+                      strokeWidth={3}
+                      dot={{ r: 4, fill: "#F97316" }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Activity size={32} className="text-gray-200" />
+                  <p className="text-sm text-gray-400 font-medium">
+                    No application data yet
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Queue Priority */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+                Queue Priority
+              </h3>
+              <ArrowUpRight size={14} className="text-gray-400" />
+            </div>
+            <div className="flex-1 divide-y divide-gray-100 overflow-y-auto">
+              {recentApplications.length === 0 ? (
+                <div className="py-20 text-center flex flex-col items-center">
+                  <Search size={32} className="text-gray-200 mb-4" />
+                  <p className="text-xs text-gray-400 font-medium tracking-tight">
+                    Empty application queue
+                  </p>
+                </div>
+              ) : (
+                recentApplications.map((app) => (
+                  <div
+                    key={app.id}
+                    className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between group cursor-pointer"
+                    onClick={() => navigate(`/admin/applications/${app.id}`)}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-900 truncate">
+                        {app.profiles?.full_name || `App #${app.id.slice(-6)}`}
+                      </p>
+                      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-widest mt-1">
+                        {app.type === "registration"
+                          ? "New Registration"
+                          : "Renewal"}
+                      </p>
+                      {app.submitted_at && (
+                        <p className="text-[9px] text-gray-300 font-mono mt-0.5">
+                          {new Date(app.submitted_at).toLocaleDateString(
+                            "en-PH",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider",
+                        normalizeStatus(app.status) === "pending"
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-blue-100 text-blue-900",
+                      )}
+                    >
+                      {app.status}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="p-4 bg-gray-50/50">
+              <button
+                onClick={() => navigate("/admin/applications")}
+                className="w-full py-2.5 bg-white border border-gray-200 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] text-gray-600 hover:bg-gray-900 hover:text-white transition-all shadow-sm"
+              >
+                View Full Queue
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── APPLICATION STATUS BAR CHART ── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+                Applications by Status
+              </h3>
+              <p className="text-xs text-gray-500 font-medium mt-1">
+                Breakdown of current application states
+              </p>
+            </div>
+            <TrendingUp size={18} className="text-gray-300" />
+          </div>
+          {appStats.total > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={barData}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke="#E5E7EB"
+                />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "12px",
+                    border: "1px solid #E5E7EB",
+                    boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                    padding: "12px",
+                  }}
+                  cursor={{ fill: "rgba(0,0,0,0.05)" }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: "10px", paddingTop: "20px" }}
+                />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={80} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-[250px] gap-3">
+              <TrendingUp size={32} className="text-gray-200" />
+              <p className="text-sm text-gray-400 font-medium">
+                No applications to display
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── LEDGER PANEL ── */}

@@ -1,3 +1,4 @@
+// src/pages/staff/Notifications.jsx
 import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
@@ -37,6 +38,7 @@ const DOT_COLORS = {
   appointment: "bg-purple-500",
   document: "bg-purple-500",
   inquiry: "bg-yellow-400",
+  staff_update: "bg-blue-400", // ← admin decision notif
   other: "bg-gray-400",
 };
 
@@ -50,6 +52,7 @@ const CAT_EMOJI = {
   document: "📎",
   application: "📎",
   inquiry: "❓",
+  staff_update: "✅",
   other: "🔔",
 };
 
@@ -63,6 +66,7 @@ const SIGNAL_TYPE_LABEL = {
   document: "DOCUMENT",
   application: "APPLICATION",
   inquiry: "INQUIRY",
+  staff_update: "ADMIN DECISION",
   other: "SYSTEM",
 };
 
@@ -76,6 +80,7 @@ const SIGNAL_ACCENT = {
   document: "border-l-purple-500",
   application: "border-l-green-500",
   inquiry: "border-l-yellow-400",
+  staff_update: "border-l-blue-400",
   other: "border-l-gray-400",
 };
 
@@ -100,7 +105,7 @@ const formatTimeAgo = (date) => {
   return `${Math.floor(diff / 1440)}d ago`;
 };
 
-// ─── Appointment modal ────────────────────────────────────────────────────────
+// ─── Appointment Modal ────────────────────────────────────────────────────────
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   const fmt = (d, type) =>
@@ -136,6 +141,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
             <X size={20} />
           </button>
         </div>
+
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
@@ -151,6 +157,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
               </p>
             )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
               <div className="flex items-center gap-1.5 mb-1">
@@ -174,6 +181,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
               </span>
             </div>
           </div>
+
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-800 space-y-1">
             <div className="flex items-center gap-1.5 font-bold mb-1">
               <MapPin size={12} />
@@ -184,6 +192,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
             <p>• Ensure applicant is informed of requirements</p>
           </div>
         </div>
+
         <div className="px-6 pb-5 flex gap-3">
           <button
             onClick={onNavigate}
@@ -203,10 +212,11 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Application modal ────────────────────────────────────────────────────────
+// ─── Application Modal ────────────────────────────────────────────────────────
 function ApplicationModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   const isRenewal = getCategory(notif) === "renewal";
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 border-orange-500">
@@ -227,6 +237,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
             <X size={20} />
           </button>
         </div>
+
         <div className="px-6 py-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
@@ -242,6 +253,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
               </p>
             )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
               <p className="text-xs text-gray-500 mb-1">Received</p>
@@ -260,6 +272,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
               </span>
             </div>
           </div>
+
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 space-y-1">
             <p className="font-bold mb-1">📋 Staff Review Notes:</p>
             <p>• Verify all submitted documents are complete</p>
@@ -267,6 +280,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
             <p>• Forward to admin for final approval if complete</p>
           </div>
         </div>
+
         <div className="px-6 pb-5 flex gap-3">
           <button
             onClick={onNavigate}
@@ -286,8 +300,107 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
   );
 }
 
+// ─── Admin Decision Modal (staff_update notifications) ───────────────────────
+function AdminDecisionModal({ notif, onClose, onNavigate }) {
+  if (!notif) return null;
+  const isApproved =
+    notif.notification_type === "staff_update" &&
+    notif.message?.toLowerCase().includes("approved");
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+      <div
+        className={`bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-t-4 ${
+          isApproved ? "border-green-500" : "border-red-500"
+        }`}
+      >
+        <div
+          className={`px-6 py-5 flex items-center gap-4 ${
+            isApproved ? "bg-green-50" : "bg-red-50"
+          }`}
+        >
+          <div
+            className={`w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 text-3xl ${
+              isApproved ? "bg-green-100" : "bg-red-100"
+            }`}
+          >
+            {isApproved ? "✅" : "❌"}
+          </div>
+          <div className="flex-1">
+            <h2
+              className={`text-base font-extrabold ${
+                isApproved ? "text-green-800" : "text-red-800"
+              }`}
+            >
+              Admin Decision Received
+            </h2>
+            <p
+              className={`text-xs mt-0.5 ${
+                isApproved ? "text-green-600" : "text-red-500"
+              }`}
+            >
+              The admin has reviewed your recommendation
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+              Details
+            </p>
+            <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              {notif.message}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-xl p-4 text-xs space-y-1 ${
+              isApproved
+                ? "bg-green-50 border border-green-200 text-green-800"
+                : "bg-red-50 border border-red-200 text-red-800"
+            }`}
+          >
+            <p className="font-bold mb-1">
+              {isApproved
+                ? "✅ Application Approved"
+                : "❌ Application Rejected"}
+            </p>
+            <p>• The applicant has been notified of the decision</p>
+            <p>• View the application for full details</p>
+          </div>
+        </div>
+
+        <div className="px-6 pb-5 flex gap-3">
+          {notif.application_id && (
+            <button
+              onClick={onNavigate}
+              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl font-bold text-sm transition shadow"
+            >
+              View Application →
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-sm transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Compose Modal ────────────────────────────────────────────────────────────
-function ComposeModal({ onClose, applicants }) {
+function ComposeModal({ onClose, applicants, staffId }) {
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState("");
   const [sendError, setSendError] = useState("");
@@ -310,6 +423,7 @@ function ComposeModal({ onClose, applicants }) {
     e.preventDefault();
     setSendError("");
     setSendSuccess("");
+
     if (!compose.recipient_id) {
       setSendError("Please select a recipient.");
       return;
@@ -327,6 +441,7 @@ function ComposeModal({ onClose, applicants }) {
     const { error } = await supabase.from("notifications").insert({
       recipient_id: compose.recipient_id,
       recipient_type: "applicant",
+      sender_id: staffId, // ← include sender_id
       sender_type: "staff",
       notification_type: compose.notification_type,
       title: compose.title.trim(),
@@ -388,6 +503,7 @@ function ComposeModal({ onClose, applicants }) {
           )}
 
           <form onSubmit={handleSend} className="space-y-4">
+            {/* Recipient */}
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
                 Recipient <span className="text-red-500">*</span>
@@ -409,6 +525,7 @@ function ComposeModal({ onClose, applicants }) {
               </select>
             </div>
 
+            {/* Type */}
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
                 Notification Type
@@ -428,6 +545,7 @@ function ComposeModal({ onClose, applicants }) {
               </select>
             </div>
 
+            {/* Title */}
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
                 Title <span className="text-red-500">*</span>
@@ -444,6 +562,7 @@ function ComposeModal({ onClose, applicants }) {
               />
             </div>
 
+            {/* Message */}
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
                 Message <span className="text-red-500">*</span>
@@ -483,39 +602,56 @@ function ComposeModal({ onClose, applicants }) {
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function StaffNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all"); // all | unread | read (archived)
+  const [filter, setFilter] = useState("all");
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  // Modals
   const [appointmentNotif, setAppointmentNotif] = useState(null);
   const [applicationNotif, setApplicationNotif] = useState(null);
+  const [adminDecisionNotif, setAdminDecisionNotif] = useState(null);
   const [showCompose, setShowCompose] = useState(false);
   const [applicants, setApplicants] = useState([]);
+
   const seenIds = useRef(new Set());
   const navigate = useNavigate();
 
-  // ── Fetch ────────────────────────────────────────────────────────────────────
+  // ── Get current user once ────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCurrentUserId(user.id);
+    });
+  }, []);
+
+  // ── Fetch notifications — SCOPED to this staff member ───────────────────
   const fetchNotifications = useCallback(async () => {
+    if (!currentUserId) return; // wait until we have the user id
+
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name, email)")
-        .in("recipient_type", ["admin", "staff"])
+        // ✅ Only this staff member's notifications
+        .eq("recipient_id", currentUserId)
+        .eq("recipient_type", "staff")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+
       const rows = data || [];
       rows.forEach((n) => seenIds.current.add(n.id));
       setNotifications(rows);
       broadcastUnreadCount(rows);
     } catch (err) {
-      console.error("Fetch error:", err);
+      console.error("[StaffNotifications] fetch error:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUserId]);
 
   const loadApplicants = useCallback(async () => {
     const { data } = await supabase
@@ -527,103 +663,174 @@ export default function StaffNotifications() {
   }, []);
 
   useEffect(() => {
-    fetchNotifications();
-    loadApplicants();
-  }, [fetchNotifications, loadApplicants]);
+    if (currentUserId) {
+      fetchNotifications();
+      loadApplicants();
+    }
+  }, [currentUserId, fetchNotifications, loadApplicants]);
 
-  // ── Realtime INSERT ───────────────────────────────────────────────────────────
+  // ── Realtime: INSERT + UPDATE scoped to this staff member ────────────────
   useEffect(() => {
-    let channel;
+    if (!currentUserId) return;
+
     let cancelled = false;
 
-    const setup = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+    const channel = supabase
+      .channel(`staff-notif-page-${currentUserId}`)
+      // ── INSERT ────────────────────────────────────────────────────────────
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          // Server-side filter — only rows for this staff member
+          filter: `recipient_id=eq.${currentUserId}`,
+        },
+        async (payload) => {
+          if (cancelled) return;
+          const row = payload.new;
 
-      channel = supabase
-        .channel(`staff-notif-page-${user.id}`)
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications" },
-          async (payload) => {
-            if (cancelled) return;
-            const row = payload.new;
-            if (!["admin", "staff"].includes(row.recipient_type)) return;
-            if (row.recipient_id && row.recipient_id !== user.id) return;
-            if (seenIds.current.has(row.id)) return;
-            seenIds.current.add(row.id);
+          // Extra client-side guard
+          if (row.recipient_type !== "staff") return;
+          if (seenIds.current.has(row.id)) return;
+          seenIds.current.add(row.id);
 
-            let enriched = { ...row, profiles: null };
-            if (row.sender_id) {
-              const { data: p } = await supabase
-                .from("profiles")
-                .select("full_name, email")
-                .eq("id", row.sender_id)
-                .single();
-              enriched.profiles = p || null;
-            }
+          // Enrich with sender profile
+          let enriched = { ...row, profiles: null };
+          if (row.sender_id) {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("full_name, email")
+              .eq("id", row.sender_id)
+              .single();
+            enriched.profiles = p || null;
+          }
 
-            setNotifications((prev) => {
-              const updated = [enriched, ...prev];
-              broadcastUnreadCount(updated);
-              return updated;
-            });
-          },
-        )
-        .subscribe();
-    };
+          setNotifications((prev) => {
+            const updated = [enriched, ...prev];
+            broadcastUnreadCount(updated);
+            return updated;
+          });
+        },
+      )
+      // ── UPDATE (e.g. is_read changed from another tab / admin action) ────
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "notifications",
+          filter: `recipient_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          if (cancelled) return;
+          const updated = payload.new;
+          setNotifications((prev) => {
+            const next = prev.map((n) =>
+              n.id === updated.id ? { ...n, ...updated } : n,
+            );
+            broadcastUnreadCount(next);
+            return next;
+          });
+        },
+      )
+      .subscribe();
 
-    setup();
     return () => {
       cancelled = true;
-      if (channel) supabase.removeChannel(channel);
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentUserId]);
 
-  // ── Mark read helpers ─────────────────────────────────────────────────────────
-  const markRead = async (id) => {
-    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+  // ── Mark single notification as read ────────────────────────────────────
+  const markRead = useCallback(
+    async (id) => {
+      // Optimistic update first
+      setNotifications((prev) => {
+        const next = prev.map((n) =>
+          n.id === id ? { ...n, is_read: true } : n,
+        );
+        broadcastUnreadCount(next);
+        return next;
+      });
+
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", id)
+        .eq("recipient_id", currentUserId); // ✅ scoped
+
+      if (error) {
+        // Revert on failure
+        setNotifications((prev) => {
+          const reverted = prev.map((n) =>
+            n.id === id ? { ...n, is_read: false } : n,
+          );
+          broadcastUnreadCount(reverted);
+          return reverted;
+        });
+        console.error("[markRead] error:", error);
+      }
+    },
+    [currentUserId],
+  );
+
+  // ── Mark ALL as read — scoped to this staff member ───────────────────────
+  const markAllRead = useCallback(async () => {
+    if (!currentUserId) return;
+
+    // Optimistic update
     setNotifications((prev) => {
-      const updated = prev.map((n) =>
-        n.id === id ? { ...n, is_read: true } : n,
-      );
-      broadcastUnreadCount(updated);
-      return updated;
+      const next = prev.map((n) => ({ ...n, is_read: true }));
+      broadcastUnreadCount(next);
+      return next;
     });
-  };
 
-  const markAllRead = async () => {
-    await supabase
+    const { error } = await supabase
       .from("notifications")
       .update({ is_read: true })
-      .in("recipient_type", ["admin", "staff"])
+      .eq("recipient_id", currentUserId) // ✅ scoped — only THIS staff member
+      .eq("recipient_type", "staff")
       .eq("is_read", false);
-    setNotifications((prev) => {
-      const updated = prev.map((n) => ({ ...n, is_read: true }));
-      broadcastUnreadCount(updated);
-      return updated;
-    });
-  };
 
-  // ── Click handler ─────────────────────────────────────────────────────────────
-  const handleClick = async (n) => {
-    if (!n.is_read) await markRead(n.id);
-    const cat = getCategory(n);
-    if (cat === "appointment") {
-      setAppointmentNotif(n);
-      return;
+    if (error) {
+      // Revert on failure and re-fetch
+      console.error("[markAllRead] error:", error);
+      fetchNotifications();
     }
-    if (["new_application", "renewal", "application"].includes(cat)) {
-      setApplicationNotif(n);
-      return;
-    }
-    if (n.application_id) navigate(`/staff/applications/${n.application_id}`);
-    else navigate("/staff/applications");
-  };
+  }, [currentUserId, fetchNotifications]);
 
-  // ── Derived state ─────────────────────────────────────────────────────────────
+  // ── Click handler ────────────────────────────────────────────────────────
+  const handleClick = useCallback(
+    async (n) => {
+      if (!n.is_read) await markRead(n.id);
+
+      const cat = getCategory(n);
+
+      // Admin decision notification
+      if (n.notification_type === "staff_update") {
+        setAdminDecisionNotif(n);
+        return;
+      }
+      if (cat === "appointment") {
+        setAppointmentNotif(n);
+        return;
+      }
+      if (["new_application", "renewal", "application"].includes(cat)) {
+        setApplicationNotif(n);
+        return;
+      }
+      if (n.application_id) {
+        navigate(`/staff/applications/${n.application_id}`);
+      } else {
+        navigate("/staff/applications");
+      }
+    },
+    [markRead, navigate],
+  );
+
+  // ── Derived counts ───────────────────────────────────────────────────────
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const archivedCount = notifications.filter((n) => n.is_read).length;
 
@@ -631,7 +838,6 @@ export default function StaffNotifications() {
     filter === "unread" ? !n.is_read : filter === "read" ? n.is_read : true,
   );
 
-  // ── Dispatch filter tabs ──────────────────────────────────────────────────────
   const dispatchFilters = [
     {
       key: "all",
@@ -653,10 +859,10 @@ export default function StaffNotifications() {
     },
   ];
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <StaffLayout>
-      {/* Modals */}
+      {/* ── Modals ── */}
       {appointmentNotif && (
         <AppointmentModal
           notif={appointmentNotif}
@@ -667,6 +873,7 @@ export default function StaffNotifications() {
           }}
         />
       )}
+
       {applicationNotif && (
         <ApplicationModal
           notif={applicationNotif}
@@ -678,10 +885,24 @@ export default function StaffNotifications() {
           }}
         />
       )}
+
+      {adminDecisionNotif && (
+        <AdminDecisionModal
+          notif={adminDecisionNotif}
+          onClose={() => setAdminDecisionNotif(null)}
+          onNavigate={() => {
+            const id = adminDecisionNotif.application_id;
+            setAdminDecisionNotif(null);
+            if (id) navigate(`/staff/applications/${id}`);
+          }}
+        />
+      )}
+
       {showCompose && (
         <ComposeModal
           onClose={() => setShowCompose(false)}
           applicants={applicants}
+          staffId={currentUserId}
         />
       )}
 
@@ -693,14 +914,12 @@ export default function StaffNotifications() {
               <span className="text-gray-900">NOTIFICATION</span>
               <span className="text-orange-500"> CENTER.</span>
             </h1>
-            {/* Underline accent */}
             <div className="mt-1 h-0.5 w-48 bg-gradient-to-r from-orange-500 to-transparent rounded-full" />
             <p className="text-sm text-gray-400 font-medium mt-2 tracking-wide">
-              Staff notification hub for system alerts and applicant messages.
+              Staff notification hub — scoped to your account only.
             </p>
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-3">
             <button
               onClick={() => setShowCompose(true)}
@@ -719,9 +938,9 @@ export default function StaffNotifications() {
           </div>
         </div>
 
-        {/* ── BODY: LEFT PANEL + RIGHT PANEL ── */}
+        {/* ── BODY ── */}
         <div className="flex gap-5 items-start">
-          {/* ── LEFT: DISPATCH FILTER PANEL ── */}
+          {/* ── LEFT: FILTER PANEL ── */}
           <div className="w-64 flex-shrink-0 space-y-4">
             {/* Filter card */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -744,7 +963,9 @@ export default function StaffNotifications() {
                       }`}
                     >
                       <span
-                        className={`flex-1 text-[11px] font-black uppercase tracking-[0.12em] ${isActive ? "text-white" : "text-gray-600"}`}
+                        className={`flex-1 text-[11px] font-black uppercase tracking-[0.12em] ${
+                          isActive ? "text-white" : "text-gray-600"
+                        }`}
                       >
                         {label}
                       </span>
@@ -763,7 +984,7 @@ export default function StaffNotifications() {
               </div>
             </div>
 
-            {/* Automated cleansing info card */}
+            {/* Info card */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 flex flex-col items-center text-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
                 <Database size={20} className="text-gray-400" />
@@ -779,7 +1000,7 @@ export default function StaffNotifications() {
               </div>
             </div>
 
-            {/* Mark all read button — only shows when there are unread */}
+            {/* Mark all read */}
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
@@ -790,13 +1011,17 @@ export default function StaffNotifications() {
             )}
           </div>
 
-          {/* ── RIGHT: SIGNAL STREAM PANEL ── */}
+          {/* ── RIGHT: SIGNAL STREAM ── */}
           <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[480px] flex flex-col">
             {/* Stream header */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/60">
               <div className="flex items-center gap-2">
                 <span
-                  className={`w-2 h-2 rounded-full ${unreadCount > 0 ? "bg-green-400 animate-pulse" : "bg-gray-300"}`}
+                  className={`w-2 h-2 rounded-full ${
+                    unreadCount > 0
+                      ? "bg-green-400 animate-pulse"
+                      : "bg-gray-300"
+                  }`}
                 />
                 <p className="text-[11px] font-black text-gray-500 uppercase tracking-[0.18em]">
                   {filter === "all"
@@ -819,7 +1044,7 @@ export default function StaffNotifications() {
               </div>
             </div>
 
-            {/* Content */}
+            {/* Loading */}
             {loading ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 py-20">
                 <div className="w-10 h-10 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
@@ -828,7 +1053,7 @@ export default function StaffNotifications() {
                 </p>
               </div>
             ) : filtered.length === 0 ? (
-              /* ── EMPTY STATE matching design ── */
+              /* Empty state */
               <div className="flex-1 flex flex-col items-center justify-center gap-4 py-20">
                 <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
                   <InboxIcon size={28} className="text-gray-300" />
@@ -846,6 +1071,7 @@ export default function StaffNotifications() {
                 )}
               </div>
             ) : (
+              /* Notification list */
               <div className="flex-1 divide-y divide-gray-50 overflow-y-auto">
                 {filtered.map((notif) => {
                   const cat = getCategory(notif);
@@ -868,13 +1094,17 @@ export default function StaffNotifications() {
                       {/* Status dot */}
                       <div className="flex-shrink-0 pt-1.5">
                         <div
-                          className={`w-2.5 h-2.5 rounded-full ${notif.is_read ? "bg-gray-200" : dot}`}
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            notif.is_read ? "bg-gray-200" : dot
+                          }`}
                         />
                       </div>
 
-                      {/* Emoji icon */}
+                      {/* Emoji */}
                       <div
-                        className={`flex-shrink-0 text-xl leading-none pt-0.5 ${notif.is_read ? "grayscale opacity-50" : ""}`}
+                        className={`flex-shrink-0 text-xl leading-none pt-0.5 ${
+                          notif.is_read ? "grayscale opacity-50" : ""
+                        }`}
                       >
                         {CAT_EMOJI[cat] || "🔔"}
                       </div>
@@ -898,12 +1128,16 @@ export default function StaffNotifications() {
                           )}
                         </div>
                         <p
-                          className={`text-sm font-bold leading-snug ${notif.is_read ? "text-gray-400" : "text-gray-900"}`}
+                          className={`text-sm font-bold leading-snug ${
+                            notif.is_read ? "text-gray-400" : "text-gray-900"
+                          }`}
                         >
                           {notif.title}
                         </p>
                         <p
-                          className={`text-xs leading-relaxed mt-0.5 line-clamp-2 ${notif.is_read ? "text-gray-300" : "text-gray-500"}`}
+                          className={`text-xs leading-relaxed mt-0.5 line-clamp-2 ${
+                            notif.is_read ? "text-gray-300" : "text-gray-500"
+                          }`}
                         >
                           {notif.message}
                         </p>

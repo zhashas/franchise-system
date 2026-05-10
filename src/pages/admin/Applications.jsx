@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// src/pages/admin/AdminApplications.jsx
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
@@ -12,21 +13,86 @@ export default function AdminApplications() {
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
-  const fetchApplications = async () => {
+  // ── Fetch all applications ────────────────────────────────────────────────
+  const fetchApplications = useCallback(async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("applications")
-        .select("*, profiles(full_name, email, phone)")
+        .select(
+          `
+          *,
+          profiles!applications_applicant_id_fkey (
+            full_name,
+            email,
+            phone
+          )
+        `,
+        )
         .order("submitted_at", { ascending: false });
+
+      if (error) throw error;
       setApplications(data || []);
+    } catch (err) {
+      console.error("[AdminApplications] fetch error:", err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  // ── Initial fetch ─────────────────────────────────────────────────────────
   useEffect(() => {
     fetchApplications();
-  }, []);
+  }, [fetchApplications]);
+
+  // ── Realtime: watch ALL applications ─────────────────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const channelName = `admin-applications-${Date.now()}`;
+
+    channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "applications",
+        },
+        (payload) => {
+          if (!isMounted) return;
+
+          if (payload.eventType === "INSERT") {
+            // Re-fetch so we get the joined profiles data
+            fetchApplications();
+          } else if (payload.eventType === "UPDATE") {
+            setApplications((prev) =>
+              prev.map((a) =>
+                a.id === payload.new.id ? { ...a, ...payload.new } : a,
+              ),
+            );
+          } else if (payload.eventType === "DELETE") {
+            setApplications((prev) =>
+              prev.filter((a) => a.id !== payload.old.id),
+            );
+          }
+        },
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          console.error("[AdminApplications] Realtime channel error");
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      if (channel) {
+        supabase.removeChannel(channel).catch(console.error);
+        channel = null;
+      }
+    };
+  }, [fetchApplications]);
 
   // ── Approve ───────────────────────────────────────────────────────────────
   const handleApprove = async (e, application) => {
@@ -48,7 +114,12 @@ export default function AdminApplications() {
         senderType: "admin",
       });
 
-      fetchApplications();
+      // Optimistic update — realtime will confirm it
+      setApplications((prev) =>
+        prev.map((a) =>
+          a.id === application.id ? { ...a, status: "approved" } : a,
+        ),
+      );
     } catch (err) {
       console.error("Approve error:", err.message);
     }
@@ -74,22 +145,26 @@ export default function AdminApplications() {
         senderType: "admin",
       });
 
-      fetchApplications();
+      // Optimistic update
+      setApplications((prev) =>
+        prev.map((a) =>
+          a.id === application.id ? { ...a, status: "rejected" } : a,
+        ),
+      );
     } catch (err) {
       console.error("Reject error:", err.message);
     }
   };
 
-  // ── Status helpers ────────────────────────────────────────────────────────
+  // ── Status badge ──────────────────────────────────────────────────────────
   const statusBadge = (status) => {
-    if (status === "approved")
-      return "bg-green-100 text-green-700 border-green-200";
-    if (status === "rejected") return "bg-red-100 text-red-600 border-red-200";
-    if (status === "under_review")
-      return "bg-blue-100 text-blue-700 border-blue-200";
-    if (status === "for_release")
-      return "bg-purple-100 text-purple-700 border-purple-200";
-    return "bg-yellow-100 text-yellow-700 border-yellow-200";
+    const map = {
+      approved: "bg-green-100 text-green-700 border-green-200",
+      rejected: "bg-red-100 text-red-600 border-red-200",
+      under_review: "bg-blue-100 text-blue-700 border-blue-200",
+      for_release: "bg-purple-100 text-purple-700 border-purple-200",
+    };
+    return map[status] ?? "bg-yellow-100 text-yellow-700 border-yellow-200";
   };
 
   // ── Filter tabs ───────────────────────────────────────────────────────────
@@ -102,7 +177,7 @@ export default function AdminApplications() {
     { key: "for_release", label: "FOR RELEASE" },
   ];
 
-  // ── Derived: filtered list ────────────────────────────────────────────────
+  // ── Derived filtered list ─────────────────────────────────────────────────
   const filtered = applications
     .filter((a) => filter === "all" || a.status === filter)
     .filter((a) => {
@@ -123,7 +198,6 @@ export default function AdminApplications() {
       <div className="max-w-7xl mx-auto space-y-5">
         {/* ── PAGE HEADER ── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          {/* Title */}
           <div>
             <h1 className="text-3xl font-black tracking-tight leading-none">
               <span className="text-gray-900">APPLICATION</span>
@@ -135,7 +209,6 @@ export default function AdminApplications() {
             </p>
           </div>
 
-          {/* Search + filter tabs */}
           <div className="flex items-center gap-3 flex-wrap justify-end">
             {/* Search */}
             <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm w-64">
@@ -158,7 +231,7 @@ export default function AdminApplications() {
             </div>
 
             {/* Filter tabs */}
-            <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+            <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm flex-wrap">
               {filterTabs.map(({ key, label }) => (
                 <button
                   key={key}
@@ -176,7 +249,7 @@ export default function AdminApplications() {
           </div>
         </div>
 
-        {/* ── QUICK STATS ROW ── */}
+        {/* ── QUICK STATS ── */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
           {[
             {
@@ -235,13 +308,15 @@ export default function AdminApplications() {
           ))}
         </div>
 
-        {/* ── MAIN CONTENT PANEL ── */}
+        {/* ── MAIN PANEL ── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px] flex flex-col">
           {/* Panel header */}
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
             <div className="flex items-center gap-2">
               <span
-                className={`w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-green-400"}`}
+                className={`w-2 h-2 rounded-full ${
+                  loading ? "bg-yellow-400 animate-pulse" : "bg-green-400"
+                }`}
               />
               <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.18em]">
                 {filter === "all"
@@ -275,7 +350,7 @@ export default function AdminApplications() {
                   ? `No results for "${searchQuery}"`
                   : filter !== "all"
                     ? "No applications match this filter."
-                    : "Try adjusting your filters or search query."}
+                    : "No applications submitted yet."}
               </p>
               {(searchQuery || filter !== "all") && (
                 <button
@@ -305,7 +380,7 @@ export default function AdminApplications() {
                     />
                   </div>
 
-                  {/* Main info */}
+                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <p className="text-sm font-black text-gray-900">
@@ -385,7 +460,7 @@ export default function AdminApplications() {
           {!loading && applications.length > 0 && (
             <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between">
               <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-                {filtered.length} / {applications.length} applications displayed
+                {filtered.length} / {applications.length} displayed
               </span>
               <button
                 onClick={fetchApplications}

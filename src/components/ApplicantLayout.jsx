@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import {
@@ -108,9 +108,17 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
 // ─── Notification Detail Modal ────────────────────────────────────────────────
 function NotifDetailModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
-  const isApproved = (notif.title || "").toLowerCase().includes("approved");
-  const isRejected = (notif.title || "").toLowerCase().includes("rejected");
-  const isRelease = (notif.title || "").toLowerCase().includes("release");
+
+  const title = notif.title?.toLowerCase() || "";
+  const type = notif.notification_type || "";
+
+  const isApproved =
+    title.includes("approved") ||
+    type === "application_approved" ||
+    type === "status_approved";
+  const isRejected = title.includes("rejected") || type === "status_rejected";
+  const isRelease = title.includes("release") || type === "for_release";
+
   const cfg = isApproved
     ? {
         icon: "✅",
@@ -215,12 +223,11 @@ function NotifDetailModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Logout Confirmation Modal ────────────────────────────────────────────────
+// ─── Logout Modal ─────────────────────────────────────────────────────────────
 function LogoutModal({ onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-4 border-red-500">
-        {/* Header */}
         <div className="bg-red-50 px-6 py-5 flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
             <LogOut size={22} className="text-red-500" />
@@ -236,8 +243,6 @@ function LogoutModal({ onConfirm, onCancel }) {
             <X size={18} />
           </button>
         </div>
-
-        {/* Body */}
         <div className="px-6 py-5">
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
             <p className="text-sm font-semibold text-black">
@@ -248,8 +253,6 @@ function LogoutModal({ onConfirm, onCancel }) {
             </p>
           </div>
         </div>
-
-        {/* Actions */}
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onConfirm}
@@ -301,7 +304,7 @@ export default function ApplicantLayout({ children }) {
     );
   }, [collapsed]);
 
-  // Load profile
+  // ── Load profile ──────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       const {
@@ -318,50 +321,146 @@ export default function ApplicantLayout({ children }) {
     load();
   }, []);
 
-  // Poll notifications every 30s
+  // ── Fetch notifications ───────────────────────────────────────────────────
+  const loadNotifications = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("notifications")
+      .select(
+        "id, title, message, notification_type, sender_type, is_read, created_at, application_id",
+      )
+      .eq("recipient_id", user.id)
+      .eq("recipient_type", "applicant")
+      .eq("is_read", false)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    const all = data || [];
+    setNotifications(all.slice(0, 8));
+    const count = all.length;
+    setNavUnread(count);
+    localStorage.setItem("notif_unread", String(count));
+  }, []);
+
+  // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
-    let cancelled = false;
-    const loadNotifications = async () => {
+    (async () => {
+      await loadNotifications();
+    })();
+  }, [loadNotifications]);
+
+  // ── Realtime notifications (replaces polling) ─────────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let isMounted = true;
+
+    const setup = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
-      const { data } = await supabase
-        .from("notifications")
-        .select(
-          "id, title, message, notification_type, sender_type, is_read, created_at, application_id",
+      if (!user || !isMounted) return;
+
+      const channelName = `applicant-layout-notifs-${user.id}-${Date.now()}`;
+
+      channel = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (!isMounted) return;
+            const n = payload.new;
+
+            // ✅ Add to dropdown immediately
+            setNotifications((prev) => {
+              const already = prev.find((x) => x.id === n.id);
+              if (already) return prev;
+              return [n, ...prev].slice(0, 8);
+            });
+
+            // ✅ Bump unread count
+            setNavUnread((prev) => {
+              const next = prev + 1;
+              localStorage.setItem("notif_unread", String(next));
+              window.dispatchEvent(
+                new CustomEvent("notif_unread_update", { detail: next }),
+              );
+              return next;
+            });
+
+            // ✅ Show bell modal for important notification types
+            const type = n.notification_type || "";
+            const title = n.title?.toLowerCase() || "";
+
+            if (type === "appointment" || title.includes("appointment")) {
+              setBellModal({ type: "appointment", notif: n });
+            } else if (
+              type === "application_approved" ||
+              type === "status_approved" ||
+              type === "status_rejected" ||
+              type === "for_release" ||
+              title.includes("approved") ||
+              title.includes("rejected") ||
+              title.includes("release")
+            ) {
+              setBellModal({ type: "notif", notif: n });
+            }
+          },
         )
-        .eq("recipient_id", user.id)
-        .eq("recipient_type", "applicant")
-        .eq("is_read", false)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (cancelled) return;
-      const all = data || [];
-      setNotifications(all.slice(0, 8));
-      const count = all.length;
-      setNavUnread(count);
-      localStorage.setItem("notif_unread", String(count));
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (!isMounted) return;
+            if (payload.new.is_read) {
+              // Remove from dropdown if marked read
+              setNotifications((prev) =>
+                prev.filter((n) => n.id !== payload.new.id),
+              );
+            }
+          },
+        )
+        .subscribe((status) => {
+          if (status === "CHANNEL_ERROR")
+            console.error("[ApplicantLayout] Notification channel error");
+        });
     };
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30_000);
+
+    setup();
+
     return () => {
-      cancelled = true;
-      clearInterval(interval);
+      isMounted = false;
+      if (channel) supabase.removeChannel(channel).catch(console.error);
     };
   }, []);
 
-  // Listen for sync from Notifications page
+  // ── Listen for sync from Notifications page ───────────────────────────────
   useEffect(() => {
     const h = (e) => {
       setNavUnread(e.detail);
       localStorage.setItem("notif_unread", String(e.detail));
+      // Re-fetch to sync dropdown list
+      if (e.detail === 0) setNotifications([]);
     };
     window.addEventListener("notif_unread_update", h);
     return () => window.removeEventListener("notif_unread_update", h);
   }, []);
 
-  // Click outside dropdown
+  // ── Click outside dropdown ────────────────────────────────────────────────
   useEffect(() => {
     const h = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -371,7 +470,7 @@ export default function ApplicantLayout({ children }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // ✅ Redirects to landing page "/" instead of "/login"
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
@@ -395,10 +494,12 @@ export default function ApplicantLayout({ children }) {
   };
 
   const handleNotifClick = async (notif) => {
+    // Mark as read
     await supabase
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notif.id);
+
     setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
     const newCount = Math.max(navUnread - 1, 0);
     setNavUnread(newCount);
@@ -407,9 +508,12 @@ export default function ApplicantLayout({ children }) {
       new CustomEvent("notif_unread_update", { detail: newCount }),
     );
     setShowDropdown(false);
+
+    // Determine modal type
     const type = notif.notification_type || "";
     const title = notif.title?.toLowerCase() || "";
-    if (type.includes("appointment") || title.includes("appointment")) {
+
+    if (type === "appointment" || title.includes("appointment")) {
       setBellModal({ type: "appointment", notif });
     } else {
       setBellModal({ type: "notif", notif });
@@ -419,12 +523,21 @@ export default function ApplicantLayout({ children }) {
   const getNotifDot = (notif) => {
     const title = notif.title?.toLowerCase() || "";
     const type = notif.notification_type || "";
-    if (title.includes("approved")) return "bg-green-500";
-    if (title.includes("rejected")) return "bg-red-500";
+    if (
+      title.includes("approved") ||
+      type === "application_approved" ||
+      type === "status_approved"
+    )
+      return "bg-green-500";
+    if (title.includes("rejected") || type === "status_rejected")
+      return "bg-red-500";
     if (title.includes("review")) return "bg-blue-500";
-    if (title.includes("appointment")) return "bg-blue-400";
+    if (title.includes("appointment") || type === "appointment")
+      return "bg-blue-400";
     if (type.includes("expiry") || title.includes("expir"))
       return "bg-orange-500";
+    if (title.includes("release") || type === "for_release")
+      return "bg-purple-500";
     return "bg-gray-400";
   };
 
@@ -438,8 +551,16 @@ export default function ApplicantLayout({ children }) {
 
   const menuItems = [
     { path: "/applicant/dashboard", icon: Home, label: "Home" },
-    { path: "/applicant/apply", icon: ClipboardList, label: "My Applications" },
-    { path: "/applicant/appointments", icon: Calendar, label: "Appointments" },
+    {
+      path: "/applicant/apply",
+      icon: ClipboardList,
+      label: "My Applications",
+    },
+    {
+      path: "/applicant/appointments",
+      icon: Calendar,
+      label: "Appointments",
+    },
     {
       path: "/applicant/notifications",
       icon: Bell,
@@ -460,7 +581,7 @@ export default function ApplicantLayout({ children }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
-      {/* ── Bell Modals ── */}
+      {/* Bell Modals */}
       {bellModal?.type === "appointment" && (
         <AppointmentModal
           notif={bellModal.notif}
@@ -482,7 +603,7 @@ export default function ApplicantLayout({ children }) {
         />
       )}
 
-      {/* ── Logout Modal ── */}
+      {/* Logout Modal */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={handleLogout}
@@ -490,9 +611,9 @@ export default function ApplicantLayout({ children }) {
         />
       )}
 
-      {/* ══════════════════════════════════════════════════════
+      {/* ════════════════════════════════════════
           SIDEBAR
-      ══════════════════════════════════════════════════════ */}
+      ════════════════════════════════════════ */}
       <aside
         className={`flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-screen sticky top-0 shadow-sm transition-all duration-300 ${
           collapsed ? "w-16" : "w-56"
@@ -581,9 +702,8 @@ export default function ApplicantLayout({ children }) {
           })}
         </nav>
 
-        {/* ── User + Logout section ── */}
+        {/* User + Logout */}
         <div className="border-t border-gray-100 p-3 space-y-2">
-          {/* Profile card */}
           <div
             className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-gray-50 border border-gray-100 ${
               collapsed ? "justify-center" : ""
@@ -597,21 +717,18 @@ export default function ApplicantLayout({ children }) {
                 <p className="text-xs font-bold text-gray-800 truncate leading-tight">
                   {profile?.full_name || "Applicant"}
                 </p>
-                <p className="text-[10px] text-orange-400 font-semibold leading-tight capitalize">
+                <p className="text-[10px] text-orange-400 font-semibold leading-tight">
                   Applicant
                 </p>
               </div>
             )}
           </div>
 
-          {/* Sign Out button */}
           <button
             onClick={() => setShowLogoutModal(true)}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold
-              text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent
-              hover:border-red-100 transition-all duration-150 ${
-                collapsed ? "justify-center" : ""
-              }`}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all duration-150 ${
+              collapsed ? "justify-center" : ""
+            }`}
             title={collapsed ? "Sign Out" : ""}
           >
             <LogOut size={14} className="flex-shrink-0" />
@@ -620,9 +737,9 @@ export default function ApplicantLayout({ children }) {
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════════════════════
+      {/* ════════════════════════════════════════
           MAIN AREA
-      ══════════════════════════════════════════════════════ */}
+      ════════════════════════════════════════ */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
@@ -652,7 +769,7 @@ export default function ApplicantLayout({ children }) {
               >
                 <Bell size={18} />
                 {navUnread > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                 )}
               </button>
 
@@ -710,7 +827,7 @@ export default function ApplicantLayout({ children }) {
                                 </p>
                                 {isAppt && (
                                   <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">
-                                    📅 Tap
+                                    📅
                                   </span>
                                 )}
                               </div>

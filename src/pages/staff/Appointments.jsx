@@ -1,239 +1,713 @@
-import { useEffect, useState } from "react"
-import { supabase } from "../../lib/supabaseClient"
-import StaffLayout from "../../components/StaffLayout"
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import StaffLayout from "../../components/StaffLayout";
+import {
+  Calendar,
+  X,
+  ChevronRight,
+  ClipboardList,
+  Check,
+  Edit2,
+} from "lucide-react";
 
 export default function StaffAppointments() {
-  const [appointments, setAppointments] = useState([])
-  const [applicants,   setApplicants]   = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [showModal,    setShowModal]    = useState(false)
-  const [searchQuery,  setSearchQuery]  = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [formData,     setFormData]     = useState({ applicant_id: "", application_id: "", scheduled_date: "", scheduled_time: "", notes: "" })
-  const [selectedApplicantApps, setSelectedApplicantApps] = useState([])
+  const [appointments, setAppointments] = useState([]);
+  const [applicants, setApplicants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [formData, setFormData] = useState({
+    applicant_id: "",
+    application_id: "",
+    scheduled_date: "",
+    scheduled_time: "",
+    notes: "",
+    status: "confirmed",
+  });
+  const [selectedApplicantApps, setSelectedApplicantApps] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [timeConfirmed, setTimeConfirmed] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState(null);
 
+  // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = async () => {
     const { data: apts } = await supabase
-      .from("appointments").select("*, profiles(full_name, email)")
-      .order("scheduled_date", { ascending: true })
-    setAppointments(apts || [])
-    const { data: profs } = await supabase.from("profiles").select("*").eq("role", "applicant").order("full_name")
-    setApplicants(profs || [])
-    setLoading(false)
-  }
-useEffect(() => {
-  const loadData = async () => {
-    await fetchData()
-  }
-  loadData()
-}, []) // dependencies remain empty
+      .from("appointments")
+      .select("*, profiles(full_name, email)")
+      .order("scheduled_date", { ascending: true });
+    setAppointments(apts || []);
+
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("role", "applicant")
+      .order("full_name", { ascending: true });
+    setApplicants(profs || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // ── Form handlers ──────────────────────────────────────────────────────────
+  const handleChange = (e) =>
+    setFormData((p) => ({ ...p, [e.target.name]: e.target.value }));
+
+  const handleTimeChange = (e) => {
+    setFormData((p) => ({ ...p, scheduled_time: e.target.value }));
+    setTimeConfirmed(false);
+  };
 
   const handleApplicantChange = async (e) => {
-    const applicantId = e.target.value
-    setFormData({ ...formData, applicant_id: applicantId, application_id: "" })
-    if (!applicantId) { setSelectedApplicantApps([]); return }
-    const { data: apps } = await supabase.from("applications").select("*").eq("applicant_id", applicantId).order("created_at", { ascending: false })
-    setSelectedApplicantApps(apps || [])
-  }
+    const applicantId = e.target.value;
+    setFormData((p) => ({
+      ...p,
+      applicant_id: applicantId,
+      application_id: "",
+    }));
+    if (!applicantId) {
+      setSelectedApplicantApps([]);
+      return;
+    }
+    const { data: apps } = await supabase
+      .from("applications")
+      .select("*")
+      .eq("applicant_id", applicantId)
+      .order("created_at", { ascending: false });
+    setSelectedApplicantApps(apps || []);
+  };
+
+  const handleEditClick = async (appointment) => {
+    setEditingAppointment(appointment);
+    setFormData({
+      applicant_id: appointment.applicant_id,
+      application_id: appointment.application_id || "",
+      scheduled_date: appointment.scheduled_date,
+      scheduled_time: appointment.scheduled_time,
+      notes: appointment.notes || "",
+      status: appointment.status,
+    });
+    setTimeConfirmed(true);
+
+    // Fetch applications for this applicant
+    const { data: apps } = await supabase
+      .from("applications")
+      .select("*")
+      .eq("applicant_id", appointment.applicant_id)
+      .order("created_at", { ascending: false });
+    setSelectedApplicantApps(apps || []);
+
+    setShowModal(true);
+  };
 
   const handleSchedule = async (e) => {
-    e.preventDefault()
-    const selectedApp = selectedApplicantApps.find(a => a.id === formData.application_id)
-
-    await supabase.from("appointments").insert({
-      applicant_id:    formData.applicant_id,
-      application_id:  formData.application_id || null,
-      scheduled_date:  formData.scheduled_date,
-      scheduled_time:  formData.scheduled_time,
-      notes:           formData.notes,
-      status:          "confirmed",
-    })
-
-    await supabase.from("notifications").insert({
-      recipient_id:      formData.applicant_id,
-      recipient_type:    "applicant",
-      sender_type:       "staff",
-      notification_type: "appointment_scheduled",
-      title:             "📅 Appointment Scheduled!",
-      message:           `Your appointment has been scheduled on ${new Date(formData.scheduled_date).toLocaleDateString("en-PH", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} at ${formData.scheduled_time}. ${formData.notes ? "Note: " + formData.notes : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."}`,
-      is_read:           false,
-    })
-
-    if (selectedApp?.status === "pending") {
-      await supabase.from("applications").update({ status: "under_review" }).eq("id", formData.application_id)
+    e.preventDefault();
+    if (!timeConfirmed && formData.scheduled_time) {
+      alert("Please confirm the time by clicking the 'Okay' button.");
+      return;
     }
+    setSubmitting(true);
+    try {
+      const selectedApp = selectedApplicantApps.find(
+        (a) => a.id === formData.application_id,
+      );
 
-    setShowModal(false)
-    setFormData({ applicant_id: "", application_id: "", scheduled_date: "", scheduled_time: "", notes: "" })
-    setSelectedApplicantApps([])
-    fetchData()
-  }
+      if (editingAppointment) {
+        // Update existing appointment
+        await supabase
+          .from("appointments")
+          .update({
+            applicant_id: formData.applicant_id,
+            application_id: formData.application_id || null,
+            scheduled_date: formData.scheduled_date,
+            scheduled_time: formData.scheduled_time,
+            notes: formData.notes,
+            status: formData.status,
+          })
+          .eq("id", editingAppointment.id);
+
+        await supabase.from("notifications").insert({
+          recipient_id: formData.applicant_id,
+          recipient_type: "applicant",
+          sender_type: "staff",
+          notification_type: "appointment_scheduled",
+          title: "📅 Appointment Updated!",
+          message: `Your appointment has been updated to ${new Date(
+            formData.scheduled_date,
+          ).toLocaleDateString("en-PH", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })} at ${formData.scheduled_time}. ${
+            formData.notes
+              ? "Note: " + formData.notes
+              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
+          }`,
+          is_read: false,
+        });
+      } else {
+        // Create new appointment
+        await supabase.from("appointments").insert({
+          applicant_id: formData.applicant_id,
+          application_id: formData.application_id || null,
+          scheduled_date: formData.scheduled_date,
+          scheduled_time: formData.scheduled_time,
+          notes: formData.notes,
+          status: "confirmed",
+        });
+
+        await supabase.from("notifications").insert({
+          recipient_id: formData.applicant_id,
+          recipient_type: "applicant",
+          sender_type: "staff",
+          notification_type: "appointment_scheduled",
+          title: "📅 Appointment Scheduled!",
+          message: `Your appointment has been scheduled on ${new Date(
+            formData.scheduled_date,
+          ).toLocaleDateString("en-PH", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })} at ${formData.scheduled_time}. ${
+            formData.notes
+              ? "Note: " + formData.notes
+              : "Please proceed to the Municipal Hall, San Jose, Occidental Mindoro."
+          }`,
+          is_read: false,
+        });
+
+        if (selectedApp?.status === "pending") {
+          await supabase
+            .from("applications")
+            .update({ status: "under_review" })
+            .eq("id", formData.application_id);
+        }
+      }
+
+      closeModal();
+      fetchData();
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const updateStatus = async (id, status) => {
-    await supabase.from("appointments").update({ status }).eq("id", id)
-    fetchData()
-  }
+    await supabase.from("appointments").update({ status }).eq("id", id);
+    fetchData();
+  };
 
-  const statusBadge = (s) => {
-    if (s === "confirmed") return { bg: "#DBEAFE", color: "#1D4ED8", label: "Confirmed" }
-    if (s === "completed") return { bg: "#DCFCE7", color: "#16A34A", label: "Completed" }
-    if (s === "cancelled") return { bg: "#FEE2E2", color: "#DC2626", label: "Cancelled" }
-    return { bg: "#FEF9C3", color: "#D97706", label: "Pending" }
-  }
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedApplicantApps([]);
+    setTimeConfirmed(false);
+    setEditingAppointment(null);
+    setFormData({
+      applicant_id: "",
+      application_id: "",
+      scheduled_date: "",
+      scheduled_time: "",
+      notes: "",
+      status: "confirmed",
+    });
+  };
 
-  const filterStats = [
-    { key: "all",       label: "All",       value: appointments.length,                                            accent: "#6B7280", bg: "#F3F4F6" },
-    { key: "confirmed", label: "Confirmed", value: appointments.filter(a => a.status === "confirmed").length,     accent: "#60A5FA", bg: "#EFF6FF" },
-    { key: "completed", label: "Completed", value: appointments.filter(a => a.status === "completed").length,     accent: "#34D399", bg: "#ECFDF5" },
-    { key: "cancelled", label: "Cancelled", value: appointments.filter(a => a.status === "cancelled").length,     accent: "#F87171", bg: "#FEF2F2" },
-  ]
+  // ── Derived state ──────────────────────────────────────────────────────────
+  const todayDay = new Date().getDate().toString().padStart(2, "0");
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todayApts = appointments.filter(
+    (a) => a.scheduled_date === todayStr && a.status !== "cancelled",
+  );
+  const remaining = todayApts.filter((a) => a.status !== "completed").length;
 
   const filtered = appointments
-    .filter(a => statusFilter === "all" || a.status === statusFilter)
-    .filter(a => {
-      const q = searchQuery.toLowerCase()
-      return a.profiles?.full_name?.toLowerCase().includes(q) || a.profiles?.email?.toLowerCase().includes(q) || a.scheduled_date?.includes(q) || a.notes?.toLowerCase().includes(q)
-    })
+    .filter((apt) =>
+      statusFilter === "all" ? true : apt.status === statusFilter,
+    )
+    .filter((apt) => {
+      const q = searchQuery.toLowerCase();
+      return (
+        apt.profiles?.full_name?.toLowerCase().includes(q) ||
+        apt.profiles?.email?.toLowerCase().includes(q) ||
+        apt.notes?.toLowerCase().includes(q) ||
+        apt.scheduled_date?.includes(q)
+      );
+    });
 
-  const inputStyle = { fontSize: "13px", border: "1.5px solid #E5E7EB", borderRadius: "8px", padding: "8px 12px", width: "100%", outline: "none" }
+  const statusTabs = [
+    { key: "all", label: "ALL" },
+    { key: "confirmed", label: "CONFIRMED" },
+    { key: "completed", label: "COMPLETED" },
+    { key: "cancelled", label: "CANCELLED" },
+  ];
 
+  const statusBadge = (status) => {
+    if (status === "confirmed") return "bg-blue-100 text-blue-700";
+    if (status === "completed") return "bg-green-100 text-green-700";
+    if (status === "cancelled") return "bg-red-100 text-red-600";
+    return "bg-yellow-100 text-yellow-700";
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <StaffLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
-
-        {/* HEADER */}
-        <div className="rounded-xl p-6 border bg-blue-50 border-blue-200 flex justify-between items-center flex-wrap gap-3">
+      <div className="max-w-7xl mx-auto space-y-5">
+        {/* ── PAGE HEADER ── */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold">APPOINTMENTS</h1>
-            <p className="text-sm text-gray-600">Manage and schedule applicant appointments.</p>
+            <h1 className="text-3xl font-black tracking-tight leading-none">
+              <span className="text-gray-900">APPOINTMENT</span>
+              <span className="text-yellow-400"> SCHEDULER.</span>
+            </h1>
+            <div className="mt-1 h-0.5 w-52 bg-gradient-to-r from-yellow-400 to-transparent rounded-full" />
+            <p className="text-sm text-gray-400 font-medium mt-2 tracking-wide">
+              Schedule and manage applicant verification appointments.
+            </p>
           </div>
-          <button onClick={() => setShowModal(true)}
-            className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold text-sm px-5 py-2.5 rounded-lg transition">
-            + Schedule Appointment
+
+          {/* Schedule Appointment button */}
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-black text-sm px-5 py-3 rounded-xl shadow-md transition-all"
+          >
+            <span className="text-lg leading-none">+</span>
+            <span>Schedule Appointment</span>
+            <ChevronRight size={16} />
           </button>
         </div>
 
-        {/* FILTER STATS */}
-        <div className="grid grid-cols-4 gap-4">
-          {filterStats.map(s => (
-            <div key={s.key} onClick={() => setStatusFilter(s.key)}
-              className={`p-4 rounded-lg border cursor-pointer transition ${statusFilter === s.key ? "ring-2 ring-black scale-[1.02]" : "hover:scale-[1.01]"}`}
-              style={{ background: s.bg, borderColor: s.accent }}>
-              <p className="text-2xl font-semibold" style={{ color: s.accent }}>{s.value}</p>
-              <p className="text-xs mt-1 font-medium" style={{ color: s.accent }}>{s.label}</p>
+        {/* ── TODAY BANNER with filter tabs ── */}
+        <div className="bg-gray-900 rounded-2xl px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+          {/* Left: today info */}
+          <div className="flex items-center gap-4">
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
+                Today
+              </p>
+              <p className="text-4xl font-black text-white leading-none tabular-nums">
+                {todayDay}
+              </p>
             </div>
-          ))}
+            <div className="h-10 w-px bg-gray-700" />
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+              {remaining} Appointment{remaining !== 1 ? "s" : ""} Remaining
+            </p>
+          </div>
+
+          {/* Right: status filter tabs */}
+          <div className="flex items-center gap-1 bg-gray-800 p-1 rounded-xl">
+            {statusTabs.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${
+                  statusFilter === key
+                    ? "bg-white text-gray-900 shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* SEARCH */}
-        <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
-          <span className="text-lg">⌕</span>
-          <input type="text" placeholder="Search by name, email, date…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            className="flex-1 text-sm outline-none bg-transparent" />
-          {searchQuery && <button onClick={() => setSearchQuery("")} className="text-xs bg-gray-100 px-3 py-1 rounded text-gray-500 font-semibold">Clear</button>}
-        </div>
+        {/* ── APPOINTMENTS LIST PANEL ── */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[340px] flex flex-col">
+          {/* Optional search bar */}
+          {appointments.length > 0 && (
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-gray-300 text-lg">⌕</span>
+              <input
+                type="text"
+                placeholder="Search by name, email, date or notes…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 text-sm text-gray-700 placeholder-gray-300 outline-none bg-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="text-[11px] font-bold text-gray-400 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded-lg transition"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
 
-        {/* TABLE */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
           {loading ? (
-            <div className="text-center py-12 text-gray-400 text-sm">Loading…</div>
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+              <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs font-bold text-gray-300 uppercase tracking-widest">
+                Loading appointments…
+              </p>
+            </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12"><p className="text-4xl mb-3">📅</p><p className="text-gray-400 text-sm">No appointments found.</p></div>
+            /* ── EMPTY STATE ── */
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+              <Calendar size={40} className="text-gray-200" />
+              <p className="text-base font-black text-gray-600">
+                No Appointments Found
+              </p>
+              <p className="text-sm text-gray-400 text-center max-w-xs">
+                {searchQuery
+                  ? `No results for "${searchQuery}"`
+                  : "Start scheduling appointments for applicants."}
+              </p>
+            </div>
           ) : (
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  {["Applicant", "Date", "Time", "Notes", "Status", "Actions"].map(h => (
-                    <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(a => (
-                  <tr key={a.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                    <td className="px-5 py-3 flex items-center gap-3">
-                      <span className="bg-blue-100 text-blue-800 p-2 rounded-full">👤</span>
-                      <div>
-                        <p className="font-semibold text-gray-800">{a.profiles?.full_name}</p>
-                        <p className="text-xs text-gray-400">{a.profiles?.email}</p>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-gray-700">{new Date(a.scheduled_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}</td>
-                    <td className="px-5 py-3 text-gray-700">{a.scheduled_time}</td>
-                    <td className="px-5 py-3 text-xs text-gray-500 max-w-[180px] truncate">{a.notes || "—"}</td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold`} style={{ background: statusBadge(a.status).bg, color: statusBadge(a.status).color }}>
-                        {statusBadge(a.status).label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-2">
-                        {a.status !== "completed" && (
-                          <button onClick={() => updateStatus(a.id, "completed")} className="px-3 py-1 text-xs font-semibold bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100">Complete</button>
-                        )}
-                        {a.status !== "cancelled" && (
-                          <button onClick={() => updateStatus(a.id, "cancelled")} className="px-3 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100">Cancel</button>
-                        )}
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    {[
+                      "Applicant",
+                      "Date",
+                      "Time",
+                      "Notes",
+                      "Status",
+                      "Actions",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-[0.15em]"
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map((apt) => (
+                    <tr
+                      key={apt.id}
+                      onClick={() => handleEditClick(apt)}
+                      className="hover:bg-gray-50/60 transition-colors cursor-pointer group"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <p className="text-sm font-bold text-gray-900">
+                              {apt.profiles?.full_name}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {apt.profiles?.email}
+                            </p>
+                          </div>
+                          <Edit2
+                            size={14}
+                            className="text-gray-300 group-hover:text-gray-500 transition opacity-0 group-hover:opacity-100"
+                          />
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">
+                        {new Date(apt.scheduled_date).toLocaleDateString(
+                          "en-PH",
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          },
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-gray-700 font-mono whitespace-nowrap">
+                        {apt.scheduled_time}
+                      </td>
+                      <td className="px-5 py-4 text-xs text-gray-400 max-w-[180px]">
+                        <span className="line-clamp-2">{apt.notes || "—"}</span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusBadge(apt.status)}`}
+                        >
+                          {apt.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div
+                          className="flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {apt.status !== "completed" &&
+                            apt.status !== "cancelled" && (
+                              <button
+                                onClick={() =>
+                                  updateStatus(apt.id, "completed")
+                                }
+                                className="text-[10px] font-black px-3 py-1.5 rounded-lg bg-green-50 text-green-600 border border-green-200 hover:bg-green-100 transition uppercase tracking-wide"
+                              >
+                                Complete
+                              </button>
+                            )}
+                          {apt.status !== "cancelled" &&
+                            apt.status !== "completed" && (
+                              <button
+                                onClick={() =>
+                                  updateStatus(apt.id, "cancelled")
+                                }
+                                className="text-[10px] font-black px-3 py-1.5 rounded-lg bg-red-50 text-red-500 border border-red-200 hover:bg-red-100 transition uppercase tracking-wide"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          {(apt.status === "completed" ||
+                            apt.status === "cancelled") && (
+                            <span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest">
+                              Locked
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-              </tbody>
-            </table>
+          {/* Footer count */}
+          {!loading && appointments.length > 0 && (
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-end">
+              <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
+                {filtered.length} / {appointments.length} records shown
+              </span>
+            </div>
           )}
         </div>
-
-        {!loading && <p className="text-right text-xs text-gray-400">Showing <strong>{filtered.length}</strong> of <strong>{appointments.length}</strong> appointments</p>}
       </div>
 
-      {/* SCHEDULE MODAL */}
+      {/* ══════════════════════════════════════════════════════════════
+          SCHEDULE MODAL
+      ══════════════════════════════════════════════════════════════ */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-7 w-full max-w-md shadow-2xl border border-gray-200">
-            <div className="flex justify-between items-center mb-5 pb-4 border-b">
-              <div><h2 className="text-base font-bold text-gray-800">Schedule Appointment</h2><p className="text-xs text-gray-400 mt-1">Fill in the details to notify the applicant.</p></div>
-              <span className="bg-yellow-400 rounded-lg p-2 text-lg">📅</span>
-            </div>
-            <form onSubmit={handleSchedule} className="space-y-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Select Applicant <span className="text-red-500">*</span></label>
-                <select value={formData.applicant_id} onChange={handleApplicantChange} required style={inputStyle}>
-                  <option value="">-- Select applicant --</option>
-                  {applicants.map(a => <option key={a.id} value={a.id}>{a.full_name} — {a.email}</option>)}
-                </select>
+                <h2 className="text-base font-black text-gray-900">
+                  {editingAppointment
+                    ? "Edit Appointment"
+                    : "Schedule Appointment"}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {editingAppointment
+                    ? "Update appointment details"
+                    : "Fill in the details to notify the applicant."}
+                </p>
               </div>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-yellow-100 flex items-center justify-center text-lg">
+                  {editingAppointment ? "✏️" : "📅"}
+                </div>
+                <button
+                  onClick={closeModal}
+                  className="text-gray-300 hover:text-gray-500 transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <form
+              onSubmit={handleSchedule}
+              className="px-6 py-5 flex flex-col gap-4"
+            >
+              {/* Select Applicant */}
+              <div>
+                <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                  Applicant <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={formData.applicant_id}
+                  onChange={handleApplicantChange}
+                  required
+                  disabled={editingAppointment !== null}
+                  className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <option value="">— Select applicant —</option>
+                  {applicants.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.full_name} — {a.email}
+                    </option>
+                  ))}
+                </select>
+                {editingAppointment && (
+                  <p className="text-[10px] text-gray-400 mt-1 font-medium">
+                    Applicant cannot be changed when editing
+                  </p>
+                )}
+              </div>
+
+              {/* Select Application */}
               {selectedApplicantApps.length > 0 && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Select Application <span className="text-gray-400 font-normal">(optional)</span></label>
-                  <select value={formData.application_id} onChange={e => setFormData({ ...formData, application_id: e.target.value })} style={inputStyle}>
-                    <option value="">-- Select application --</option>
-                    {selectedApplicantApps.map(app => <option key={app.id} value={app.id}>{app.type} — {app.status} — {new Date(app.created_at).toLocaleDateString()}</option>)}
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                    Application{" "}
+                    <span className="text-gray-300 font-medium normal-case">
+                      (optional)
+                    </span>
+                  </label>
+                  <select
+                    value={formData.application_id}
+                    onChange={(e) =>
+                      setFormData((p) => ({
+                        ...p,
+                        application_id: e.target.value,
+                      }))
+                    }
+                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
+                  >
+                    <option value="">— Select application —</option>
+                    {selectedApplicantApps.map((app) => (
+                      <option key={app.id} value={app.id}>
+                        {app.type} · {app.status} ·{" "}
+                        {new Date(app.created_at).toLocaleDateString()}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
+
+              {formData.applicant_id && selectedApplicantApps.length === 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-xs text-yellow-700 font-medium">
+                  ⚠️ No applications found for this applicant. You can still
+                  schedule.
+                </div>
+              )}
+
+              {/* Date + Time */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Date <span className="text-red-500">*</span></label>
-                  <input type="date" value={formData.scheduled_date} min={new Date().toISOString().split("T")[0]} onChange={e => setFormData({ ...formData, scheduled_date: e.target.value })} required style={inputStyle} />
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                    Date <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    name="scheduled_date"
+                    value={formData.scheduled_date}
+                    onChange={handleChange}
+                    min={new Date().toISOString().split("T")[0]}
+                    required
+                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Time <span className="text-red-500">*</span></label>
-                  <input type="time" value={formData.scheduled_time} onChange={e => setFormData({ ...formData, scheduled_time: e.target.value })} required style={inputStyle} />
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                    Time <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="time"
+                      name="scheduled_time"
+                      value={formData.scheduled_time}
+                      onChange={handleTimeChange}
+                      required
+                      className={`w-full text-sm text-gray-700 border rounded-xl px-3 py-2.5 outline-none transition ${
+                        timeConfirmed
+                          ? "border-green-400 bg-green-50"
+                          : "border-gray-200 bg-gray-50 focus:border-gray-400"
+                      }`}
+                    />
+                    {formData.scheduled_time && (
+                      <button
+                        type="button"
+                        onClick={() => setTimeConfirmed(true)}
+                        disabled={timeConfirmed}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition ${
+                          timeConfirmed
+                            ? "bg-green-500 text-white cursor-default"
+                            : "bg-yellow-400 hover:bg-yellow-500 text-black"
+                        }`}
+                      >
+                        {timeConfirmed ? (
+                          <span className="flex items-center gap-1">
+                            <Check size={12} />
+                            Set
+                          </span>
+                        ) : (
+                          "Okay"
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {formData.scheduled_time && !timeConfirmed && (
+                    <p className="text-[10px] text-yellow-600 font-medium mt-1">
+                      Click "Okay" to confirm the time
+                    </p>
+                  )}
                 </div>
               </div>
+
+              {/* Notes */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
-                <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} rows={3} style={{ ...inputStyle, resize: "none" }} placeholder="Additional instructions…" />
+                <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                  Notes{" "}
+                  <span className="text-gray-300 font-medium normal-case">
+                    (optional)
+                  </span>
+                </label>
+                <textarea
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleChange}
+                  placeholder="Additional instructions for the applicant…"
+                  rows={3}
+                  className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 resize-none transition"
+                />
               </div>
-              <div className="flex gap-3 pt-2">
-                <button type="submit" className="flex-1 bg-black text-yellow-400 font-bold text-sm py-2.5 rounded-xl hover:opacity-90 transition">Schedule & Notify</button>
-                <button type="button" onClick={() => { setShowModal(false); setFormData({ applicant_id: "", application_id: "", scheduled_date: "", scheduled_time: "", notes: "" }); setSelectedApplicantApps([]) }} className="flex-1 bg-gray-100 text-gray-700 font-semibold text-sm py-2.5 rounded-xl hover:bg-gray-200 transition">Cancel</button>
+
+              {/* Status (only when editing) */}
+              {editingAppointment && (
+                <div>
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-wide mb-1.5">
+                    Status <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleChange}
+                    required
+                    className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-gray-400 bg-gray-50 transition"
+                  >
+                    <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Submit buttons */}
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-yellow-400 font-black text-sm py-3 rounded-xl transition shadow"
+                >
+                  {submitting
+                    ? editingAppointment
+                      ? "Updating…"
+                      : "Scheduling…"
+                    : editingAppointment
+                      ? "Update & Notify"
+                      : "Schedule & Notify"}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm py-3 rounded-xl border border-gray-200 transition"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
     </StaffLayout>
-  )
+  );
 }

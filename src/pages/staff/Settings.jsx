@@ -853,8 +853,8 @@ export default function StaffSettings() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* New password */}
                   <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
-                      New Passphrase
+                    <label className="block text-[10px] font-black text-black uppercase tracking-widest mb-1.5">
+                      New Password
                     </label>
                     <div className="relative">
                       <input
@@ -862,7 +862,7 @@ export default function StaffSettings() {
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="Min. 6 alphanumeric chars"
-                        className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10
+                        className="w-full border border-black bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10
                           focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400
                           placeholder:text-gray-300 transition"
                         required
@@ -906,21 +906,21 @@ export default function StaffSettings() {
 
                   {/* Confirm password */}
                   <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
-                      Verify Cipher
+                    <label className="block text-[10px] font-black text-black uppercase tracking-widest mb-1.5">
+                      Verify Password
                     </label>
                     <div className="relative">
                       <input
                         type={showConfirm ? "text" : "password"}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Retype passphrase"
+                        placeholder="Retype password"
                         className={`w-full border bg-gray-50 rounded-xl px-4 py-2.5 text-sm pr-10
                           focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400
                           placeholder:text-gray-300 transition ${
                             confirmPassword && confirmPassword !== newPassword
                               ? "border-red-300"
-                              : "border-gray-200"
+                              : "border-black"
                           }`}
                         required
                       />
@@ -963,7 +963,7 @@ export default function StaffSettings() {
             </div>
 
             {/* Password Policy Info Card */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-black p-5">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
                   <Lock size={18} className="text-orange-400" />
