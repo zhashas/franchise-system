@@ -484,7 +484,9 @@ function ConfigurationGroup({ collapsed, location, navigate }) {
     (c) => location.pathname === c.path,
   );
   const [manualOpen, setManualOpen] = useState(false);
-  const open = isAnyChildActive || manualOpen;
+
+  // Remove automatic opening based on active state
+  const open = manualOpen;
 
   // ── Collapsed: flat icon buttons ─────────────────────────────────────────
   if (collapsed) {
