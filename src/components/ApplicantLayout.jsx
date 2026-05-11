@@ -17,7 +17,7 @@ import {
   Globe,
 } from "lucide-react";
 
-// ─── Appointment Detail Modal ─────────────────────────────────────────────────
+// ─── Appointment Detail Modal
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   return (
@@ -105,7 +105,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Notification Detail Modal ────────────────────────────────────────────────
+// ─── Notification Detail Modal ───
 function NotifDetailModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
 
@@ -223,7 +223,7 @@ function NotifDetailModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Logout Modal ─────────────────────────────────────────────────────────────
+// ─── Logout Modal ───
 function LogoutModal({ onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -273,7 +273,7 @@ function LogoutModal({ onConfirm, onCancel }) {
   );
 }
 
-// ─── Layout ───────────────────────────────────────────────────────────────────
+// ─── Layout ─
 export default function ApplicantLayout({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -304,7 +304,7 @@ export default function ApplicantLayout({ children }) {
     );
   }, [collapsed]);
 
-  // ── Load profile ──────────────────────────────────────────────────────────
+  // ── Load profile
   useEffect(() => {
     const load = async () => {
       const {
@@ -321,7 +321,7 @@ export default function ApplicantLayout({ children }) {
     load();
   }, []);
 
-  // ── Fetch notifications ───────────────────────────────────────────────────
+  // ── Fetch notifications ──
   const loadNotifications = useCallback(async () => {
     const {
       data: { user },
@@ -346,14 +346,14 @@ export default function ApplicantLayout({ children }) {
     localStorage.setItem("notif_unread", String(count));
   }, []);
 
-  // ── Initial load ──────────────────────────────────────────────────────────
+  // ── Initial load
   useEffect(() => {
     (async () => {
       await loadNotifications();
     })();
   }, [loadNotifications]);
 
-  // ── Realtime notifications (replaces polling) ─────────────────────────────
+  // ── Realtime notifications (replaces polling)
   useEffect(() => {
     let channel = null;
     let isMounted = true;
@@ -448,7 +448,7 @@ export default function ApplicantLayout({ children }) {
     };
   }, []);
 
-  // ── Listen for sync from Notifications page ───────────────────────────────
+  // ── Listen for sync from Notifications page
   useEffect(() => {
     const h = (e) => {
       setNavUnread(e.detail);
@@ -460,7 +460,7 @@ export default function ApplicantLayout({ children }) {
     return () => window.removeEventListener("notif_unread_update", h);
   }, []);
 
-  // ── Click outside dropdown ────────────────────────────────────────────────
+  // ── Click outside dropdown
   useEffect(() => {
     const h = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -470,7 +470,7 @@ export default function ApplicantLayout({ children }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // ── Handlers
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
@@ -549,25 +549,39 @@ export default function ApplicantLayout({ children }) {
     return `${Math.floor(diffMin / 1440)}d ago`;
   };
 
+  // ✅ Updated menu items with color styling
   const menuItems = [
-    { path: "/applicant/dashboard", icon: Home, label: "Home" },
+    {
+      path: "/applicant/dashboard",
+      icon: Home,
+      label: "Home",
+      color: "text-orange-500",
+    },
     {
       path: "/applicant/apply",
       icon: ClipboardList,
       label: "My Applications",
+      color: "text-blue-500",
     },
     {
       path: "/applicant/appointments",
       icon: Calendar,
       label: "Appointments",
+      color: "text-emerald-500",
     },
     {
       path: "/applicant/notifications",
       icon: Bell,
       label: "Notifications",
+      color: "text-yellow-500",
       badge: true,
     },
-    { path: "/applicant/settings", icon: Settings, label: "Settings" },
+    {
+      path: "/applicant/settings",
+      icon: Settings,
+      label: "Settings",
+      color: "text-gray-500",
+    },
   ];
 
   const initials = profile?.full_name
@@ -611,9 +625,7 @@ export default function ApplicantLayout({ children }) {
         />
       )}
 
-      {/* ════════════════════════════════════════
-          SIDEBAR
-      ════════════════════════════════════════ */}
+      {/*SIDEBAR*/}
       <aside
         className={`flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-screen sticky top-0 shadow-sm transition-all duration-300 ${
           collapsed ? "w-16" : "w-56"
@@ -652,7 +664,7 @@ export default function ApplicantLayout({ children }) {
           </button>
         </div>
 
-        {/* Nav */}
+        {/* Nav - ✅ Updated with AdminLayout styling */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -661,19 +673,19 @@ export default function ApplicantLayout({ children }) {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
+                title={collapsed ? item.label : ""}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
                   isActive
                     ? "bg-gray-900 text-white shadow-sm"
                     : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                 }`}
-                title={collapsed ? item.label : ""}
               >
                 <Icon
                   size={17}
-                  className={`flex-shrink-0 ${
+                  className={`flex-shrink-0 transition-colors ${
                     isActive
                       ? "text-white"
-                      : "text-gray-400 group-hover:text-gray-600"
+                      : `${item.color} group-hover:opacity-80`
                   }`}
                 />
                 {!collapsed && (
@@ -737,9 +749,7 @@ export default function ApplicantLayout({ children }) {
         </div>
       </aside>
 
-      {/* ════════════════════════════════════════
-          MAIN AREA
-      ════════════════════════════════════════ */}
+      {/*MAIN AREA*/}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
@@ -757,7 +767,7 @@ export default function ApplicantLayout({ children }) {
           <div className="flex items-center gap-3" ref={dropdownRef}>
             {/* Language */}
             <button className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">
-              <Globe size={13} />
+              <Globe size={13} className="text-blue-400" />
               <span>English</span>
             </button>
 
@@ -767,7 +777,7 @@ export default function ApplicantLayout({ children }) {
                 onClick={() => setShowDropdown((p) => !p)}
                 className="relative p-2 rounded-xl hover:bg-gray-100 transition text-gray-500 hover:text-gray-700"
               >
-                <Bell size={18} />
+                <Bell size={18} className="text-yellow-500" />
                 {navUnread > 0 && (
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                 )}

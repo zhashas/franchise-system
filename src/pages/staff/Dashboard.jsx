@@ -1,4 +1,3 @@
-// src/pages/staff/StaffDashboard.jsx
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
@@ -31,7 +30,7 @@ import {
   Eye,
 } from "lucide-react";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers
 const toDateObj = (str) => new Date(str + "T00:00:00");
 const diffDays = (a, b) =>
   Math.round((toDateObj(a) - toDateObj(b)) / 86_400_000);
@@ -49,7 +48,7 @@ const cn = (...classes) => classes.filter(Boolean).join(" ");
 
 const TOTAL_SLOTS = 5200;
 
-// ─── Status color helpers ────────────────────────────────────────────────────
+// ─── Status color helpers
 const appStatusColor = (s) => {
   const map = {
     approved: "bg-emerald-100 text-emerald-700",
@@ -72,7 +71,7 @@ const aptStatusColor = (s) => {
   return map[normalizeStatus(s)] || "bg-blue-100 text-blue-700";
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────────
+// ─── Main Component
 export default function StaffDashboard() {
   const navigate = useNavigate();
 
@@ -82,10 +81,9 @@ export default function StaffDashboard() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ── Single effect: fetch everything once on mount ───────────────────────
+  // ── Single effect: fetch everything once on mount
   useEffect(() => {
-    let cancelled = false; // prevent setState after unmount
-
+    let cancelled = false;
     async function load() {
       const {
         data: { user },
@@ -178,7 +176,7 @@ export default function StaffDashboard() {
     );
   });
 
-  // ── Chart data (pure transforms — no setState) ──────────────────────────
+  // ── Chart data (pure transforms — no setState)
   const lineData = applications
     .filter((a) => a?.submitted_at)
     .reduce((acc, app) => {
@@ -200,7 +198,7 @@ export default function StaffDashboard() {
     { name: "Rejected", value: appStats.rejected },
   ];
 
-  // ── Stat cards ──────────────────────────────────────────────────────────
+  // ── Stat cards
   const stats = [
     {
       label: "Active Holders",
@@ -260,7 +258,7 @@ export default function StaffDashboard() {
     },
   ];
 
-  // ── Loading state ───────────────────────────────────────────────────────
+  // ── Loading state
   if (loading) {
     return (
       <StaffLayout>
@@ -272,11 +270,11 @@ export default function StaffDashboard() {
     );
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────
+  // ── Render
   return (
     <StaffLayout>
       {/* ── HEADER ── */}
-      <div className="top-0 z-30 -mx-8 px-8 py-6 mb-8">
+      <div className="sticky top-0 z-30 -mx-8 px-8 py-6 mb-8">
         <div className="max-w-[1600px] mx-auto">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -848,28 +846,6 @@ export default function StaffDashboard() {
               </p>
             </div>
           )}
-        </div>
-
-        {/* ── STAFF INFO BANNER ── */}
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-              <Eye size={20} className="text-blue-500" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-blue-900 mb-1">
-                Staff Access Information
-              </p>
-              <p className="text-xs text-blue-700 leading-relaxed">
-                As staff, you have <strong>view-only access</strong> to
-                franchises, applications, and appointments. To change
-                application statuses, send bulk notifications, or manage
-                franchise records, please contact an <strong>Admin</strong>. You
-                can assist applicants by reviewing their documents and providing
-                guidance.
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     </StaffLayout>

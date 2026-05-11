@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { getCategory } from "../utils/notificationUtils";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────
 const DOT_COLOR = {
   new_application: "bg-green-500",
   renewal: "bg-orange-500",
@@ -47,7 +47,7 @@ const formatTimeAgo = (date) => {
   return `${Math.floor(diffMin / 1440)}d ago`;
 };
 
-// ─── Configuration child routes ───────────────────────────────────────────────
+// ─── Configuration child routes ───────
 const CONFIG_CHILDREN = [
   {
     path: "/admin/staff",
@@ -79,7 +79,7 @@ const CONFIG_CHILDREN = [
   },
 ];
 
-// ─── Top-level nav items ──────────────────────────────────────────────────────
+// ─── Top-level nav items ──────────────
 const NAV_ITEMS = [
   {
     path: "/admin/dashboard",
@@ -127,7 +127,7 @@ const NAV_ITEMS = [
   },
 ];
 
-// ─── Appointment Modal ────────────────────────────────────────────────────────
+// ─── Appointment Modal ────────────────
 function AppointmentModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
 
@@ -241,7 +241,7 @@ function AppointmentModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Application Modal ────────────────────────────────────────────────────────
+// ─── Application Modal ────────────────
 function ApplicationModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
 
@@ -333,7 +333,7 @@ function ApplicationModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Staff Review Modal ───────────────────────────────────────────────────────
+// ─── Staff Review Modal ───────────────
 function StaffReviewModal({ notif, onClose, onNavigate }) {
   if (!notif) return null;
   const isPass = notif.message?.toLowerCase().includes("pass");
@@ -423,7 +423,7 @@ function StaffReviewModal({ notif, onClose, onNavigate }) {
   );
 }
 
-// ─── Logout Confirmation Modal ────────────────────────────────────────────────
+// ─── Logout Confirmation Modal ────────
 function LogoutModal({ onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -478,17 +478,18 @@ function LogoutModal({ onConfirm, onCancel }) {
   );
 }
 
-// ─── Configuration Dropdown Nav Item ─────────────────────────────────────────
+// ─── Configuration Dropdown Nav Item
 function ConfigurationGroup({ collapsed, location, navigate }) {
   const isAnyChildActive = CONFIG_CHILDREN.some(
     (c) => location.pathname === c.path,
   );
-  const [manualOpen, setManualOpen] = useState(false);
 
-  // Remove automatic opening based on active state
+  // Initialize with true if any child is active, otherwise false
+  const [manualOpen, setManualOpen] = useState(() => isAnyChildActive);
+
   const open = manualOpen;
 
-  // ── Collapsed: flat icon buttons ─────────────────────────────────────────
+  // ── Collapsed: flat icon buttons
   if (collapsed) {
     return (
       <div className="space-y-0.5">
@@ -521,7 +522,7 @@ function ConfigurationGroup({ collapsed, location, navigate }) {
     );
   }
 
-  // ── Expanded: collapsible group ───────────────────────────────────────────
+  // ── Expanded: collapsible group
   return (
     <div>
       {/* Parent trigger */}
@@ -593,7 +594,7 @@ function ConfigurationGroup({ collapsed, location, navigate }) {
   );
 }
 
-// ─── Admin Layout ─────────────────────────────────────────────────────────────
+// ─── Admin Layout
 export default function AdminLayout({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -621,12 +622,12 @@ export default function AdminLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ── Persist collapsed state ─────────────────────────────────────────────
+  // ── Persist collapsed state
   useEffect(() => {
     localStorage.setItem("admin_sidebar_collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
 
-  // ── Load admin profile & user ID ────────────────────────────────────────
+  // ── Load admin profile & user ID
   useEffect(() => {
     let cancelled = false;
 
@@ -670,7 +671,7 @@ export default function AdminLayout({ children }) {
     };
   }, []);
 
-  // ── Realtime notifications ──────────────────────────────────────────────
+  // ── Realtime notifications
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -828,7 +829,7 @@ export default function AdminLayout({ children }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Bell notification click ─────────────────────────────────────────────
+  // ── Bell notification click ─────
   const handleBellNotifClick = async (notif) => {
     // Mark as read
     const { error } = await supabase
@@ -900,7 +901,7 @@ export default function AdminLayout({ children }) {
       .map((w) => w[0]?.toUpperCase() || "")
       .join("") || "U";
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
       {/* ── Modals ── */}

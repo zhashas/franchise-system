@@ -234,7 +234,6 @@ function LogoutModal({ onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-4 border-red-500">
-        {/* Header */}
         <div className="bg-red-50 px-6 py-5 flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
             <LogOut size={22} className="text-red-500" />
@@ -250,8 +249,6 @@ function LogoutModal({ onConfirm, onCancel }) {
             <X size={18} />
           </button>
         </div>
-
-        {/* Body */}
         <div className="px-6 py-5">
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
             <p className="text-sm font-semibold text-black">
@@ -262,8 +259,6 @@ function LogoutModal({ onConfirm, onCancel }) {
             </p>
           </div>
         </div>
-
-        {/* Actions */}
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onConfirm}
@@ -302,6 +297,7 @@ export default function StaffLayout({ children }) {
   const [appointmentNotif, setAppointmentNotif] = useState(null);
   const [applicationNotif, setApplicationNotif] = useState(null);
   const [staffProfile, setStaffProfile] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const dropdownRef = useRef();
   const seenIds = useRef(new Set());
@@ -313,83 +309,151 @@ export default function StaffLayout({ children }) {
   }, [collapsed]);
 
   const navItems = [
-    { path: "/staff/dashboard", icon: Home, label: "Home" },
-    { path: "/staff/applications", icon: ClipboardList, label: "Applications" },
-    { path: "/staff/appointments", icon: Calendar, label: "Appointments" },
-    { path: "/staff/reports", icon: BarChart3, label: "Reports" },
+    {
+      path: "/staff/dashboard",
+      icon: Home,
+      label: "Home",
+      color: "text-orange-500",
+      badge: false,
+    },
+    {
+      path: "/staff/applications",
+      icon: ClipboardList,
+      label: "Applications",
+      color: "text-blue-500",
+      badge: false,
+    },
+    {
+      path: "/staff/appointments",
+      icon: Calendar,
+      label: "Appointments",
+      color: "text-emerald-500",
+      badge: false,
+    },
+    {
+      path: "/staff/reports",
+      icon: BarChart3,
+      label: "Reports",
+      color: "text-purple-500",
+      badge: false,
+    },
     {
       path: "/staff/notifications",
       icon: Bell,
       label: "Notifications",
+      color: "text-yellow-500",
       badge: true,
+      badgeKey: "notifications",
     },
-    { path: "/staff/settings", icon: Settings, label: "Account Settings" },
+    {
+      path: "/staff/settings",
+      icon: Settings,
+      label: "Account Settings",
+      color: "text-gray-500",
+      badge: false,
+    },
   ];
 
-  // Load staff profile
+  // ── Load staff profile & user ID ──
   useEffect(() => {
+    let cancelled = false;
+
     const load = async () => {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
+
+      if (userError || !user || cancelled) {
+        console.error("Failed to get user:", userError);
+        return;
+      }
+
+      setCurrentUserId(user.id);
+
+      const { data, error } = await supabase
         .from("profiles")
         .select("full_name, email, role")
         .eq("id", user.id)
         .single();
-      setStaffProfile(
-        data || { full_name: "User", email: user.email, role: "Staff" },
-      );
+
+      if (error) {
+        console.error("Failed to load profile:", error);
+      }
+
+      if (!cancelled) {
+        setStaffProfile(
+          data || { full_name: "User", email: user.email, role: "Staff" },
+        );
+      }
     };
+
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Unread notifications + realtime
+  // ── ✅ FIXED: Realtime notifications with broadcast support ──
   useEffect(() => {
+    if (!currentUserId) return;
+
     let channel;
     let cancelled = false;
 
-    // ✅ FIXED: Added recipient_id filter
+    // ✅ FIXED: Load both direct AND broadcast notifications
     const loadUnread = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (cancelled) return;
 
       const { data, error } = await supabase
         .from("notifications")
         .select("*, profiles!notifications_sender_id_fkey(full_name)")
-        .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
-        .in("recipient_type", ["admin", "staff"])
+        .eq("recipient_type", "staff")
+        .or(`recipient_id.eq.${currentUserId},recipient_id.is.null`)
         .eq("is_read", false)
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (cancelled || error) return;
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Failed to load notifications:", error);
+        return;
+      }
+
       const rows = data || [];
       rows.forEach((n) => seenIds.current.add(n.id));
       setBellNotifs(rows.slice(0, 10));
       setUnreadCount(rows.length);
     };
 
+    // ✅ FIXED: Realtime with broadcast support
     const setupRealtime = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (cancelled) return;
+
       channel = supabase
-        .channel(`staff-layout-notif-${user.id}`)
+        .channel(`staff-layout-notif-${currentUserId}`)
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications" },
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+          },
           async (payload) => {
             if (cancelled) return;
             const row = payload.new;
-            if (!["admin", "staff"].includes(row.recipient_type)) return;
-            if (row.recipient_id && row.recipient_id !== user.id) return;
+
+            // ✅ Accept if recipient_type is staff AND (direct OR broadcast)
+            if (row.recipient_type !== "staff") return;
+            if (row.recipient_id !== null && row.recipient_id !== currentUserId)
+              return;
+
+            // Prevent duplicates
             if (seenIds.current.has(row.id)) return;
             seenIds.current.add(row.id);
+
+            // Enrich with sender profile
             let enriched = { ...row, profiles: null };
             if (row.sender_id) {
               const { data: p } = await supabase
@@ -399,16 +463,30 @@ export default function StaffLayout({ children }) {
                 .single();
               enriched.profiles = p || null;
             }
+
             setBellNotifs((prev) => [enriched, ...prev].slice(0, 10));
             setUnreadCount((prev) => prev + 1);
           },
         )
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications" },
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+          },
           (payload) => {
             if (cancelled) return;
             const updated = payload.new;
+
+            // ✅ Only process staff notifications (direct or broadcast)
+            if (updated.recipient_type !== "staff") return;
+            if (
+              updated.recipient_id !== null &&
+              updated.recipient_id !== currentUserId
+            )
+              return;
+
             if (updated.is_read) {
               setBellNotifs((prev) => prev.filter((n) => n.id !== updated.id));
               setUnreadCount((prev) => Math.max(prev - 1, 0));
@@ -432,9 +510,9 @@ export default function StaffLayout({ children }) {
       window.removeEventListener("staffUnreadCount", onCount);
       window.removeEventListener("staff_bell_rows", onRows);
     };
-  }, []);
+  }, [currentUserId]);
 
-  // Close dropdown on outside click
+  // ── Close dropdown on outside click ──
   useEffect(() => {
     const h = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -449,9 +527,11 @@ export default function StaffLayout({ children }) {
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notif.id);
+
     setBellNotifs((prev) => prev.filter((n) => n.id !== notif.id));
     setUnreadCount((prev) => Math.max(prev - 1, 0));
     setShowDropdown(false);
+
     const cat = getCategory(notif);
     if (cat === "appointment") {
       setAppointmentNotif(notif);
@@ -466,18 +546,15 @@ export default function StaffLayout({ children }) {
     else navigate("/staff/notifications");
   };
 
-  // ✅ FIXED: Added recipient_id filter
+  // ✅ FIXED: Mark all as read with broadcast support
   const markAllAsRead = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!currentUserId) return;
 
     await supabase
       .from("notifications")
       .update({ is_read: true })
-      .eq("recipient_id", user.id) // ← ✅ ADDED THIS LINE
-      .in("recipient_type", ["admin", "staff"])
+      .eq("recipient_type", "staff")
+      .or(`recipient_id.eq.${currentUserId},recipient_id.is.null`)
       .eq("is_read", false);
 
     setBellNotifs([]);
@@ -521,8 +598,6 @@ export default function StaffLayout({ children }) {
           }}
         />
       )}
-
-      {/* ── Logout Modal ── */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={handleLogout}
@@ -573,57 +648,64 @@ export default function StaffLayout({ children }) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-          {navItems.map(({ path, icon, label, badge }) => {
-            const isActive = location.pathname === path;
-            const Icon = icon;
-            return (
-              <button
-                key={path}
-                onClick={() => navigate(path)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
-                  isActive
-                    ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                }`}
-                title={collapsed ? label : ""}
-              >
-                <Icon
-                  size={17}
-                  className={`flex-shrink-0 ${
+          {(() => {
+            const badgeCounts = {
+              notifications: unreadCount,
+            };
+
+            return navItems.map((item) => {
+              const ItemIcon = item.icon;
+              const isActive = location.pathname === item.path;
+              const badgeVal = item.badge ? badgeCounts[item.badgeKey] || 0 : 0;
+
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  title={collapsed ? item.label : ""}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group ${
                     isActive
-                      ? "text-white"
-                      : "text-gray-400 group-hover:text-gray-600"
+                      ? "bg-gray-900 text-white shadow-sm"
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                   }`}
-                />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left text-[13px]">
-                      {label}
-                    </span>
-                    {badge && unreadCount > 0 && (
-                      <span
-                        className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${
-                          isActive
-                            ? "bg-white text-gray-900"
-                            : "bg-gray-900 text-white"
-                        }`}
-                      >
-                        {unreadCount > 99 ? "99+" : unreadCount}
+                >
+                  <ItemIcon
+                    size={17}
+                    className={`flex-shrink-0 transition-colors ${
+                      isActive
+                        ? "text-white"
+                        : `${item.color} group-hover:opacity-80`
+                    }`}
+                  />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left text-[13px]">
+                        {item.label}
                       </span>
-                    )}
-                  </>
-                )}
-                {collapsed && badge && unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
-                )}
-              </button>
-            );
-          })}
+                      {item.badge && badgeVal > 0 && (
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${
+                            isActive
+                              ? "bg-white text-gray-900"
+                              : "bg-gray-900 text-white"
+                          }`}
+                        >
+                          {badgeVal > 99 ? "99+" : badgeVal}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {collapsed && item.badge && badgeVal > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
+                  )}
+                </button>
+              );
+            });
+          })()}
         </nav>
 
-        {/* ── User + Logout section ── */}
+        {/* User + Logout */}
         <div className="border-t border-gray-100 p-3 space-y-2">
-          {/* Profile card */}
           <div
             className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-gray-50 border border-gray-100 ${
               collapsed ? "justify-center" : ""
@@ -644,14 +726,11 @@ export default function StaffLayout({ children }) {
             )}
           </div>
 
-          {/* Sign Out button */}
           <button
             onClick={() => setShowLogoutModal(true)}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold
-              text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent
-              hover:border-red-100 transition-all duration-150 ${
-                collapsed ? "justify-center" : ""
-              }`}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold text-red-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all duration-150 ${
+              collapsed ? "justify-center" : ""
+            }`}
             title={collapsed ? "Sign Out" : ""}
           >
             <LogOut size={14} className="flex-shrink-0" />
@@ -666,21 +745,19 @@ export default function StaffLayout({ children }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
-                Staff Member
-              </p>
-              <p className="text-sm font-bold text-gray-800 leading-tight mt-0.5">
-                San Jose Staff Portal
-              </p>
-            </div>
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+              Staff Member
+            </p>
+            <p className="text-sm font-bold text-gray-800 leading-tight mt-0.5">
+              San Jose Staff Portal
+            </p>
           </div>
 
           <div className="flex items-center gap-3" ref={dropdownRef}>
             {/* Language */}
             <button className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">
-              <Globe size={13} />
+              <Globe size={13} className="text-blue-400" />
               <span>English</span>
             </button>
 
@@ -690,7 +767,7 @@ export default function StaffLayout({ children }) {
                 onClick={() => setShowDropdown((p) => !p)}
                 className="relative p-2 rounded-xl hover:bg-gray-100 transition text-gray-500 hover:text-gray-700"
               >
-                <Bell size={18} />
+                <Bell size={18} className="text-yellow-500" />
                 {unreadCount > 0 && (
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
                 )}
