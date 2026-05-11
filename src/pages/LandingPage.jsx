@@ -45,9 +45,9 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans antialiased">
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           NAVIGATION
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md transition-all duration-300 ${
           scrolled
@@ -165,9 +165,9 @@ export default function LandingPage() {
       {/* Spacer for fixed nav */}
       <div className="h-16" />
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           HERO SECTION
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section className="relative bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white overflow-hidden">
         {/* Background decorations */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -200,30 +200,6 @@ export default function LandingPage() {
               office appointments, and receive real-time updates from the
               Municipal Hall of San Jose.
             </p>
-
-            {/* CTA Buttons */}
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => navigate("/register")}
-                className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-3.5 rounded-xl transition-all duration-150 shadow-lg shadow-orange-500/30 hover:shadow-xl"
-              >
-                Apply for Franchise
-                <ChevronRight size={18} />
-              </button>
-              <button
-                onClick={() => navigate("/login")}
-                className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold px-6 py-3.5 rounded-xl transition-all duration-150 border border-white/20 backdrop-blur-sm"
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => scrollTo("features")}
-                className="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 border border-white/10"
-              >
-                Learn More
-                <ChevronRight size={16} className="animate-bounce" />
-              </button>
-            </div>
           </div>
         </div>
 
@@ -242,9 +218,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          STATS BAR
-      ══════════════════════════════════════════════════════════════════════ */}
+      {/*STATS BAR*/}
       <section className="bg-gray-50 -mt-1">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -299,9 +273,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           FEATURES
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section
         id="features"
         className="py-20 px-4 sm:px-6 lg:px-8 bg-white scroll-mt-20"
@@ -394,9 +368,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           HOW IT WORKS
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section
         id="how-it-works"
         className="py-20 px-4 sm:px-6 lg:px-8 bg-gray-50 scroll-mt-20"
@@ -493,9 +467,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           REQUIREMENTS
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section
         id="requirements"
         className="py-20 px-4 sm:px-6 lg:px-8 bg-white scroll-mt-20"
@@ -797,9 +771,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           USER ROLES
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section
         id="user-roles"
         className="py-20 px-4 sm:px-6 lg:px-8 bg-gray-50 scroll-mt-20"
@@ -901,9 +875,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           FINAL CTA
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <section className="relative bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white overflow-hidden py-20 px-4 sm:px-6 lg:px-8">
         {/* Background decorations */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -937,9 +911,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════════
+      {/* 
           FOOTER
-      ══════════════════════════════════════════════════════════════════════ */}
+       */}
       <footer className="bg-gray-900 text-gray-400 border-t border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
